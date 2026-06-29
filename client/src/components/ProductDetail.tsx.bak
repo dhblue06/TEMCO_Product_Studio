@@ -1,0 +1,531 @@
+import React, { useState, useEffect } from 'react';
+import { productsApi } from '../services/api';
+import { Product } from '../types';
+
+interface ProductDetailProps {
+  reference: string | null;
+  refreshKey?: number;
+  onUpdated: () => void;
+}
+
+const ProductDetail: React.FC<ProductDetailProps> = ({ reference, refreshKey, onUpdated }) => {
+  const [product, setProduct] = useState<Product | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [activeLang, setActiveLang] = useState<'es' | 'zh'>('es');
+  const [localContent, setLocalContent] = useState<any>(null);
+  const [localStatus, setLocalStatus] = useState('');
+
+  useEffect(() => {
+    if (!reference) {
+      setProduct(null);
+      setLocalContent(null);
+      return;
+    }
+
+    const fetchDetail = async () => {
+      setLoading(true);
+      try {
+        const res = await productsApi.getDetail(reference);
+        if (res.success) {
+          setProduct(res.data);
+          setLocalContent(res.data.content);
+          setLocalStatus(res.data.status);
+        }
+      } catch (err: any) {
+        console.error('Failed to fetch detail:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDetail();
+  }, [reference, refreshKey]);
+
+  const handleProductFieldChange = (field: 'selling_points' | 'product_intro', value: string) => {
+    setProduct((prev) => prev ? ({ ...prev, [field]: value }) : prev);
+  };
+
+  const handleFieldChange = (lang: 'es' | 'zh', field: string, value: string | string[]) => {
+    setLocalContent((prev: any) => ({
+      ...prev,
+      [lang]: {
+        ...(prev?.[lang] || {}),
+        [field]: value,
+      },
+    }));
+  };
+
+  const handleGalleryAltsChange = (lang: 'es' | 'zh', index: number, value: string) => {
+    const alts = [...((localContent?.[lang]?.galleryImageAlts) || [])];
+    alts[index] = value;
+    handleFieldChange(lang, 'galleryImageAlts', alts);
+  };
+
+  const saveProductDraft = async (options?: { silent?: boolean }) => {
+    if (!reference || !product) return false;
+    if (!options?.silent) {
+      setSaving(true);
+      setMessage('');
+    }
+    try {
+      const res = await productsApi.update(reference, {
+        status: localStatus,
+        selling_points: product.selling_points || '',
+        product_intro: product.product_intro || '',
+        content: localContent,
+      });
+      if (!res.success) {
+        if (!options?.silent) setMessage(`❌ 保存失败: ${res.error || '未知错误'}`);
+        return false;
+      }
+      if (!options?.silent) {
+        setMessage('✅ 保存成功');
+        onUpdated();
+      }
+      return true;
+    } catch (err: any) {
+      if (!options?.silent) setMessage(`❌ 保存失败: ${err.message}`);
+      return false;
+    } finally {
+      if (!options?.silent) {
+        setSaving(false);
+        setTimeout(() => setMessage(''), 3000);
+      }
+    }
+  };
+
+  const handleSave = async () => {
+    await saveProductDraft();
+  };
+
+  const handleGenerateAiCopy = async () => {
+    if (!reference || !product) return;
+    setAiGenerating('copy');
+    setMessage('');
+    setImagePromptPreview(null);
+    try {
+      const saved = await saveProductDraft({ silent: true });
+      if (!saved) throw new Error('保存卖点和介绍失败，无法生成文案');
+      const res = await fetch(`/api/copy/generate/${encodeURIComponent(reference)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sellingPoints: product.selling_points || '',
+          productIntro: product.product_intro || '',
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || '文案生成失败');
+      setLocalContent(data.data);
+      setLocalStatus('双语文案已生成');
+      setMessage('✅ 已根据卖点和介绍生成文案、SEO 和图片 ALT');
+      onUpdated();
+    } catch (err: any) {
+      setMessage(`❌ ${err.message}`);
+    } finally {
+      setAiGenerating('');
+      setTimeout(() => setMessage(''), 5000);
+    }
+  };
+
+  const handlePreviewImagePrompts = async () => {
+    if (!reference || !product) return;
+    setAiGenerating('imagePrompts');
+    setMessage('');
+    try {
+      const saved = await saveProductDraft({ silent: true });
+      if (!saved) throw new Error('保存卖点和介绍失败，无法生成图片提示词');
+      const res = await fetch(`/api/ai-images/preview-prompts/${encodeURIComponent(reference)}`);
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || '图片提示词生成失败');
+      setImagePromptPreview(data.data);
+      setMessage('✅ 已根据卖点和介绍生成图片提示词预览');
+    } catch (err: any) {
+      setMessage(`❌ ${err.message}`);
+    } finally {
+      setAiGenerating('');
+      setTimeout(() => setMessage(''), 5000);
+    }
+  };
+
+  const handleUploadImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0 || !reference) return;
+    setUploading(true); setMessage('');
+    try {
+      const formData = new FormData();
+      Array.from(files).forEach(f => formData.append('images', f));
+      const res = await fetch(`/api/upload/upload-batch/${encodeURIComponent(reference)}`, { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.success) {
+        setMessage(`✅ ${data.message}`);
+        const detailRes = await productsApi.getDetail(reference);
+        if (detailRes.success) setProduct(detailRes.data);
+      } else setMessage(`❌ ${data.error || '上传失败'}`);
+    } catch (err: any) { setMessage(`❌ 上传失败: ${err.message}`); }
+    finally { setUploading(false); if (fileInputRef.current) fileInputRef.current.value = ''; }
+  };
+
+  const handleWhiteBg = async (imageId: number) => {
+    if (!reference) return;
+    setProcessing(`wb_${imageId}`); setMessage('');
+    try {
+      const res = await fetch(`/api/upload/white-bg/${encodeURIComponent(reference)}/${imageId}`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        setMessage(`✅ 白底图已生成`);
+        const detailRes = await productsApi.getDetail(reference);
+        if (detailRes.success) setProduct(detailRes.data);
+      } else setMessage(`❌ ${data.error || '处理失败'}`);
+    } catch (err: any) { setMessage(`❌ ${err.message}`); }
+    finally { setProcessing(null); }
+  };
+
+  const handleSceneImage = async (imageId: number, sceneType: string) => {
+    if (!reference) return;
+    setProcessing(`scene_${imageId}`); setMessage('');
+    try {
+      const res = await fetch(`/api/upload/scene/${encodeURIComponent(reference)}/${imageId}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sceneType }),
+      });
+      const data = await res.json();
+      if (data.success) setMessage(`✅ 场景图提示词: ${data.data.prompt.substring(0, 50)}...`);
+      else setMessage(`❌ ${data.error || '生成失败'}`);
+    } catch (err: any) { setMessage(`❌ ${err.message}`); }
+    finally { setProcessing(null); }
+  };
+
+  if (!reference) {
+    return (
+      <div className="detail-panel">
+        <div className="detail-empty">
+          <div className="empty-icon">👈</div>
+          <div>选择一个商品查看详情</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="detail-panel">
+        <div className="loading">加载中...</div>
+      </div>
+    );
+  }
+
+  if (!product) {
+    return (
+      <div className="detail-panel">
+        <div className="detail-empty">
+          <div>商品未找到</div>
+        </div>
+      </div>
+    );
+  }
+
+  const currentContent = localContent?.[activeLang] || {};
+  const otherLang = activeLang === 'es' ? 'zh' : 'es';
+
+  return (
+    <div className="detail-panel">
+      <div className="detail-header">
+        <h2>{product.reference}</h2>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>
+            {saving ? '保存中...' : '💾 保存'}
+          </button>
+          <button
+            className="btn btn-danger btn-sm"
+            onClick={async () => {
+              if (!window.confirm(`确定删除商品 ${product.reference}？此操作不可撤销。`)) return;
+              try {
+                const res = await productsApi.delete(product.reference);
+                if (res.success) {
+                  onUpdated();
+                }
+              } catch (err: any) {
+                alert('删除失败: ' + err.message);
+              }
+            }}
+          >
+            🗑 删除
+          </button>
+        </div>
+      </div>
+
+      <div className="detail-body">
+        {message && (
+          <div style={{ padding: '8px 12px', marginBottom: 12, borderRadius: 4, background: message.includes('❌') ? '#fff2f0' : '#f6ffed', fontSize: 13 }}>
+            {message}
+          </div>
+        )}
+
+        {/* 基本信息 */}
+        <div className="detail-section">
+          <h4>基本信息</h4>
+          <div className="detail-field">
+            <label>Reference</label>
+            <input value={product.reference} disabled />
+          </div>
+          <div className="detail-field">
+            <label>PrestaShop ID</label>
+            <input value={product.prestashopId || '-'} disabled />
+          </div>
+          <div className="detail-field">
+            <label>分类</label>
+            <input value={product.category || '-'} disabled />
+          </div>
+          <div className="detail-field">
+            <label>品牌</label>
+            <input value={product.brand || '-'} disabled />
+          </div>
+          <div className="detail-field">
+            <label>状态</label>
+            <select value={localStatus} onChange={(e) => setLocalStatus(e.target.value)}>
+              <option value="待处理">待处理</option>
+              <option value="缺图片文件夹">缺图片文件夹</option>
+              <option value="已匹配图片">已匹配图片</option>
+              <option value="已匹配视频">已匹配视频</option>
+              <option value="双语文案待生成">双语文案待生成</option>
+              <option value="双语文案已生成">双语文案已生成</option>
+              <option value="西语文案待审核">西语文案待审核</option>
+              <option value="图片ALT待生成">图片ALT待生成</option>
+              <option value="SEO待检查">SEO待检查</option>
+              <option value="SEO通过">SEO通过</option>
+              <option value="可导出PrestaShop">可导出PrestaShop</option>
+              <option value="已导出">已导出</option>
+              <option value="上传失败">上传失败</option>
+              <option value="已上传">已上传</option>
+            </select>
+          </div>
+        </div>
+
+        {/* AI 生成工作流 */}
+        <div className="detail-section">
+          <h4>AI 内容生成</h4>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.6 }}>
+            1. 填卖点和介绍 → 2. 生成文案/SEO/ALT → 3. 预览图片提示词。单个产品在这里操作，顶部按钮主要用于批量任务。
+          </div>
+          <div className="detail-field">
+            <label>产品卖点（AI 生成核心依据）</label>
+            <textarea
+              value={product.selling_points || ''}
+              onChange={(e) => handleProductFieldChange('selling_points', e.target.value)}
+              rows={4}
+              placeholder="例如：轻薄便携；适合门店批发展示；多颜色可选；包装整洁"
+            />
+          </div>
+          <div className="detail-field">
+            <label>产品介绍（补充用途、场景、包装、客户）</label>
+            <textarea
+              value={product.product_intro || ''}
+              onChange={(e) => handleProductFieldChange('product_intro', e.target.value)}
+              rows={5}
+              placeholder="补充产品用途、适用场景、包装、目标客户等。中文或西语都可以。"
+            />
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+            <button className="btn btn-sm" onClick={handleSave} disabled={saving || !!aiGenerating}>
+              {saving ? '保存中...' : '1 保存素材'}
+            </button>
+            <button className="btn btn-primary btn-sm" onClick={handleGenerateAiCopy} disabled={!!aiGenerating}>
+              {aiGenerating === 'copy' ? '生成中...' : '2 生成文案 SEO ALT'}
+            </button>
+            <button className="btn btn-sm" onClick={handlePreviewImagePrompts} disabled={!!aiGenerating}>
+              {aiGenerating === 'imagePrompts' ? '生成中...' : '3 预览图片提示词'}
+            </button>
+          </div>
+          {imagePromptPreview && (
+            <div style={{ marginTop: 10, padding: 10, border: '1px solid var(--border-color)', borderRadius: 6, background: '#fafafa' }}>
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>图片提示词预览</div>
+              {Object.entries(imagePromptPreview).map(([type, prompt]) => (
+                <div key={type} style={{ marginBottom: 6, fontSize: 12 }}>
+                  <strong>{type}</strong>
+                  <div style={{ color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{prompt}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        {/* 语言切换 */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <button
+            className={`btn btn-sm ${activeLang === 'es' ? 'btn-primary' : ''}`}
+            onClick={() => setActiveLang('es')}
+          >
+            🇪🇸 西班牙语（PrestaShop）
+          </button>
+          <button
+            className={`btn btn-sm ${activeLang === 'zh' ? 'btn-primary' : ''}`}
+            onClick={() => setActiveLang('zh')}
+          >
+            🇨🇳 中文（审核）
+          </button>
+        </div>
+
+        {/* 双语内容编辑 */}
+        <div className="detail-section">
+          <h4>{activeLang === 'es' ? '西班牙语内容' : '中文内容'}</h4>
+
+          <div className="detail-field">
+            <label>商品名 {activeLang === 'zh' ? '(不上传)' : ''}</label>
+            <input
+              value={currentContent.name || ''}
+              onChange={(e) => handleFieldChange(activeLang, 'name', e.target.value)}
+            />
+          </div>
+
+          <div className="detail-field">
+            <label>短描述</label>
+            <textarea
+              value={currentContent.descriptionShort || ''}
+              onChange={(e) => handleFieldChange(activeLang, 'descriptionShort', e.target.value)}
+              rows={3}
+            />
+          </div>
+
+          <div className="detail-field">
+            <label>长描述 (HTML)</label>
+            <textarea
+              value={currentContent.description || ''}
+              onChange={(e) => handleFieldChange(activeLang, 'description', e.target.value)}
+              rows={6}
+            />
+          </div>
+
+          <div className="detail-field">
+            <label>SEO 标题</label>
+            <input
+              value={currentContent.seoTitle || ''}
+              onChange={(e) => handleFieldChange(activeLang, 'seoTitle', e.target.value)}
+            />
+          </div>
+
+          <div className="detail-field">
+            <label>SEO 描述</label>
+            <textarea
+              value={currentContent.seoDescription || ''}
+              onChange={(e) => handleFieldChange(activeLang, 'seoDescription', e.target.value)}
+              rows={3}
+            />
+          </div>
+
+          <div className="detail-field">
+            <label>友好 URL (Friendly URL)</label>
+            <input
+              value={currentContent.friendlyUrl || ''}
+              onChange={(e) => handleFieldChange(activeLang, 'friendlyUrl', e.target.value)}
+            />
+          </div>
+
+          <div className="detail-field">
+            <label>主图 ALT</label>
+            <input
+              value={currentContent.imageAlt || ''}
+              onChange={(e) => handleFieldChange(activeLang, 'imageAlt', e.target.value)}
+            />
+          </div>
+        </div>
+
+        {/* ========== 图片工作区（统一流程） ========== */}
+        <div className="detail-section" style={{ borderTop: '2px solid var(--accent)', paddingTop: 12 }}>
+          <h4 style={{ color: 'var(--accent)' }}>📸 图片工作区</h4>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+            1. 上传手机照片 → 2. 选择要生成的类型 → 3. 点击生成
+          </div>
+
+          {/* 上传按钮 */}
+          <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleUploadImage} style={{ display: 'none' }} />
+          <button className="btn btn-sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}
+            style={{ width: '100%', justifyContent: 'center', marginBottom: 8, padding: '8px 0' }}>
+            {uploading ? '⏳ 上传中...' : uploading ? '📤 上传中...' : '📤 上传手机拍摄的产品照片'}
+          </button>
+
+          {/* 已上传图片缩略图 */}
+          {product.images && product.images.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+              {product.images.map((img) => (
+                <div key={img.id} style={{ width: 56, height: 56, borderRadius: 4, overflow: 'hidden',
+                  border: '1px solid var(--border-color)', background: '#fafafa' }}>
+                  {(img as any).local_path ? (
+                    <img src={`/api/upload/file/${encodeURIComponent((img as any).local_path.split(/[/\\]/).pop() || '')}`}
+                      alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                  ) : <div style={{ fontSize: 20, textAlign: 'center', lineHeight: '56px' }}>🖼</div>}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* 生成选项 - 勾选要生成的图片类型 */}
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>选择要生成的图片：</div>
+          {generateOptions.map(opt => (
+            <label key={opt.id} style={{
+              display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px',
+              marginBottom: 4, borderRadius: 4, cursor: 'pointer',
+              background: selectedGenerates.has(opt.id) ? '#e6f4ff' : '#fafafa',
+              border: selectedGenerates.has(opt.id) ? '1px solid var(--accent)' : '1px solid var(--border-color)',
+            }}>
+              <input type="checkbox" checked={selectedGenerates.has(opt.id)}
+                onChange={() => {
+                  setSelectedGenerates(prev => {
+                    const next = new Set(prev);
+                    if (next.has(opt.id)) next.delete(opt.id); else next.add(opt.id);
+                    return next;
+                  });
+                }} />
+              <span style={{ fontSize: 18 }}>{opt.icon}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{opt.label}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{opt.desc}</div>
+              </div>
+            </label>
+          ))}
+
+          {/* 生成按钮 */}
+          <button className="btn btn-primary" onClick={handleBatchGenerate}
+            disabled={generatingBatch || selectedGenerates.size === 0 || !product.images?.length}
+            style={{ width: '100%', justifyContent: 'center', padding: '10px 0', marginTop: 8 }}>
+            {generatingBatch
+              ? `⏳ 生成中... (${generateProgress.current}/${generateProgress.total})`
+              : `🚀 生成选中图片 (${selectedGenerates.size} 种)`}
+          </button>
+
+          {/* 进度/消息 */}
+          {genMessage && (
+            <div style={{
+              marginTop: 8, padding: '8px 10px', borderRadius: 4, fontSize: 12, whiteSpace: 'pre-wrap', maxHeight: 120, overflowY: 'auto',
+              background: genMessage.includes('❌') ? '#fff2f0' : genMessage.includes('✅') ? '#f6ffed' : '#fffbe6',
+            }}>
+              {genMessage}
+            </div>
+          )}
+        </div>
+
+        {/* 视频信息 */}
+        {product.video && (
+          <div className="detail-section">
+            <h4>视频</h4>
+            <div style={{ fontSize: 13 }}>
+              🎬 {product.video.name}
+            </div>
+          </div>
+        )}
+
+        {/* 对侧语言参考 */}
+        <div className="detail-section">
+          <h4>{otherLang === 'es' ? '🇪🇸 西语参考' : '🇨🇳 中文参考'}</h4>
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+            <div><strong>名称:</strong> {localContent?.[otherLang]?.name || '-'}</div>
+            <div style={{ marginTop: 4 }}><strong>短描述:</strong></div>
+            <div>{localContent?.[otherLang]?.descriptionShort || '-'}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default ProductDetail;

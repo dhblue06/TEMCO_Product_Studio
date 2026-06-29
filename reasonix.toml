@@ -1,0 +1,36 @@
+default_model = "deepseek/deepseek-v4-flash"
+[permissions]
+allow = ["Bash(cd C:\\Users\\xjm06\\Documents\\TEMCO\\TEMCO_Product_Studio && mkdir -p server/src/{routes,services,database,middleware} client/src/{components,pages,hooks,services,types})", "Bash(curl -s http://localhost:3001/api/health 2>&1 && echo \"\" && curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173)", "Bash(taskkill //F //IM node.exe 2>/dev/null; sleep 2 && cd /c/Users/xjm06/Documents/TEMCO/TEMCO_Product_Studio/server && npx tsx src/index.ts)"]
+
+
+[[providers]]
+name        = "deepseek-flash"
+kind        = "openai"
+base_url    = "https://api.deepseek.com"
+model       = "deepseek-v4-flash"
+api_key_env = "DEEPSEEK_API_KEY"
+balance_url = "https://api.deepseek.com/user/balance"
+context_window = 1000000
+price       = { cache_hit = 0.02, input = 1, output = 2, currency = "¥" }
+
+[[providers]]
+name        = "deepseek-pro"
+kind        = "openai"
+base_url    = "https://api.deepseek.com"
+model       = "deepseek-v4-pro"
+api_key_env = "DEEPSEEK_API_KEY"
+balance_url = "https://api.deepseek.com/user/balance"
+context_window = 1000000
+price       = { cache_hit = 0.025, input = 3, output = 6, currency = "¥" }
+
+[[providers]]
+name        = "deepseek"
+kind        = "openai"
+base_url    = "https://api.deepseek.com"
+models      = ["deepseek-v4-flash", "deepseek-v4-pro"]
+default     = "deepseek-v4-flash"
+api_key_env = "DEEPSEEK_API_KEY"
+balance_url = "https://api.deepseek.com/user/balance"
+context_window = 1000000
+price       = { cache_hit = 0.02, input = 1, output = 2, currency = "¥" }
+prices      = { "deepseek-v4-flash" = { cache_hit = 0.02, input = 1, output = 2, currency = "¥" }, "deepseek-v4-pro" = { cache_hit = 0.025, input = 3, output = 6, currency = "¥" } }
