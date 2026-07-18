@@ -20,6 +20,8 @@ export interface ProductImage {
   exportName: string;
   imageIndex: number;
   role: 'main' | 'gallery';
+  image_slot?: string;
+  imageSlot?: string;
   mimeType: string;
   webViewLink: string;
   thumbnailLink: string;
@@ -45,6 +47,7 @@ export interface Product {
   category: string;
   brand: string;
   model: string;
+  quantity: number;
   selling_points: string;
   product_intro: string;
   video_url: string;
@@ -54,6 +57,7 @@ export interface Product {
   prestashop_id: number;
   prestashop_sync_status: string;
   prestashop_last_sync_at: string;
+  active?: string;
   status: string;
   uploadStatus: string;
   sheetRawData: Record<string, string>;
@@ -79,6 +83,7 @@ export interface ProductListItem {
   category: string;
   brand: string;
   model: string;
+  quantity: number;
   selling_points: string;
   product_intro: string;
   status: string;

@@ -161,6 +161,24 @@ export function initializeDatabase(): void {
 
   ensureColumn('products', 'selling_points', `TEXT DEFAULT ''`);
   ensureColumn('products', 'product_intro', `TEXT DEFAULT ''`);
+  ensureColumn('products', 'prestashop_sync_status', `TEXT DEFAULT ''`);
+  ensureColumn('products', 'prestashop_last_sync_at', `TEXT DEFAULT ''`);
+  ensureColumn('products', 'prestashop_last_error', `TEXT DEFAULT ''`);
+  ensureColumn('products', 'prestashop_category_id', `TEXT DEFAULT ''`);
+  ensureColumn('products', 'prestashop_manufacturer_id', `TEXT DEFAULT ''`);
+  ensureColumn('products', 'prestashop_shop_id', `TEXT DEFAULT ''`);
+  ensureColumn('products', 'video_url', `TEXT DEFAULT ''`);
+  ensureColumn('products', 'ean13', `TEXT DEFAULT ''`);
+  ensureColumn('products', 'upc', `TEXT DEFAULT ''`);
+  ensureColumn('products', 'mpn', `TEXT DEFAULT ''`);
+  ensureColumn('products', 'price', `REAL DEFAULT 0`);
+  ensureColumn('products', 'quantity', `INTEGER DEFAULT 0`);
+  ensureColumn('products', 'wholesale_price', `REAL DEFAULT 0`);
+  ensureColumn('product_images', 'image_slot', `TEXT DEFAULT ''`);
+  ensureColumn('product_images', 'prestashop_image_id', `TEXT DEFAULT ''`);
+  ensureColumn('product_images', 'prestashop_sync_status', `TEXT DEFAULT ''`);
+  ensureColumn('product_images', 'prestashop_last_sync_at', `TEXT DEFAULT ''`);
+  ensureColumn('product_images', 'prestashop_last_error', `TEXT DEFAULT ''`);
   // 初始化默认设置
   const insertDefaultSetting = (key: string, value: string) => {
     db.prepare('INSERT OR IGNORE INTO api_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)').run(key, value);
@@ -198,12 +216,112 @@ export function initializeDatabase(): void {
   insertDefaultSetting('prestashop_base_url', 'https://www.temco.es');
   insertDefaultSetting('prestashop_api_key', '');
   insertDefaultSetting('prestashop_language_id', '');
+  insertDefaultSetting('prestashop_default_lang_id', '1');
+  insertDefaultSetting('prestashop_spanish_lang_id', '1');
+  insertDefaultSetting('prestashop_chinese_lang_id', '');
+  insertDefaultSetting('prestashop_default_category_id', '3');
+  insertDefaultSetting('prestashop_default_manufacturer_id', '1');
+  insertDefaultSetting('prestashop_default_shop_id', '1');
+  insertDefaultSetting('prestashop_video_mode', 'link');
+  insertDefaultSetting('prestashop_image_sync_mode', 'skipExists');
+  insertDefaultSetting('prestashop_batch_limit', '50');
   insertDefaultSetting('prestashop_upload_mode', 'csv_only');
 
   // 批量限制默认值
   insertDefaultSetting('batch_copy_limit', '50');
   insertDefaultSetting('batch_image_limit', '10');
   insertDefaultSetting('require_review_before_export', 'true');
+
+  // === 导入批次表 ===
+  db.exec(`CREATE TABLE IF NOT EXISTS prestashop_import_batches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_type TEXT NOT NULL DEFAULT 'csv', source_name TEXT,
+    import_mode TEXT NOT NULL DEFAULT 'replace',
+    activation_assumption TEXT NOT NULL DEFAULT 'active_only',
+    total_rows INTEGER DEFAULT 0, valid_rows INTEGER DEFAULT 0,
+    matched_rows INTEGER DEFAULT 0, unmatched_rows INTEGER DEFAULT 0,
+    conflict_rows INTEGER DEFAULT 0, invalid_rows INTEGER DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'processing',
+    is_current INTEGER NOT NULL DEFAULT 0,
+    updates_website_status INTEGER NOT NULL DEFAULT 1,
+    delimiter TEXT, encoding TEXT, field_mapping TEXT, import_options TEXT,
+    error_message TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP, completed_at TEXT
+  );`);
+
+  // === 网站商品快照表 ===
+  db.exec(`CREATE TABLE IF NOT EXISTS prestashop_product_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id INTEGER NOT NULL, prestashop_id TEXT NOT NULL,
+    image_url TEXT, website_name TEXT,
+    reference TEXT NOT NULL, normalized_reference TEXT NOT NULL,
+    website_category TEXT,
+    price_tax_excl TEXT, price_tax_excl_value REAL,
+    price_tax_incl TEXT, price_tax_incl_value REAL,
+    quantity_text TEXT, quantity_value INTEGER,
+    assumed_active INTEGER, raw_data TEXT, row_number INTEGER,
+    validation_status TEXT DEFAULT 'valid', validation_errors TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(batch_id) REFERENCES prestashop_import_batches(id) ON DELETE CASCADE
+  );`);
+
+  // === 网站匹配关系表 ===
+  db.exec(`CREATE TABLE IF NOT EXISTS product_website_matches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id INTEGER NOT NULL, snapshot_id INTEGER NOT NULL, product_id INTEGER,
+    match_status TEXT NOT NULL, match_method TEXT,
+    confidence INTEGER DEFAULT 0, is_on_website INTEGER DEFAULT 0,
+    local_reference TEXT, website_reference TEXT, conflict_details TEXT,
+    matched_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(batch_id) REFERENCES prestashop_import_batches(id) ON DELETE CASCADE,
+    FOREIGN KEY(snapshot_id) REFERENCES prestashop_product_snapshots(id) ON DELETE CASCADE,
+    FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE SET NULL
+  );`);
+
+  // 索引
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_ps_batch_current ON prestashop_import_batches(is_current, status);
+    CREATE INDEX IF NOT EXISTS idx_ps_snapshot_batch ON prestashop_product_snapshots(batch_id);
+    CREATE INDEX IF NOT EXISTS idx_ps_snapshot_reference ON prestashop_product_snapshots(normalized_reference);
+    CREATE INDEX IF NOT EXISTS idx_ps_snapshot_product_id ON prestashop_product_snapshots(prestashop_id);
+    CREATE INDEX IF NOT EXISTS idx_ps_match_product ON product_website_matches(product_id);
+    CREATE INDEX IF NOT EXISTS idx_ps_match_batch ON product_website_matches(batch_id);
+    CREATE INDEX IF NOT EXISTS idx_ps_match_status ON product_website_matches(match_status);`);
+
+  // === 产品清单批次表 ===
+  db.exec(`CREATE TABLE IF NOT EXISTS product_list_import_batches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_type TEXT NOT NULL DEFAULT 'xlsx', source_name TEXT, sheet_name TEXT,
+    total_rows INTEGER DEFAULT 0, valid_rows INTEGER DEFAULT 0,
+    on_website_rows INTEGER DEFAULT 0, not_on_website_rows INTEGER DEFAULT 0,
+    missing_local_rows INTEGER DEFAULT 0, conflict_rows INTEGER DEFAULT 0, invalid_rows INTEGER DEFAULT 0,
+    website_batch_id INTEGER,
+    field_mapping TEXT, import_options TEXT,
+    status TEXT NOT NULL DEFAULT 'processing',
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP, completed_at TEXT, error_message TEXT,
+    FOREIGN KEY(website_batch_id) REFERENCES prestashop_import_batches(id)
+  );`);
+
+  // === 产品清单明细表 ===
+  db.exec(`CREATE TABLE IF NOT EXISTS product_list_import_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id INTEGER NOT NULL, source_row_no INTEGER,
+    reference TEXT, normalized_reference TEXT,
+    label_name_es TEXT, product_name_zh TEXT, model TEXT, brand TEXT,
+    source_price_text TEXT, source_price_value REAL, remark TEXT, raw_data TEXT,
+    local_product_id INTEGER, website_snapshot_id INTEGER,
+    check_status TEXT NOT NULL, match_method TEXT, conflict_details TEXT,
+    checked_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(batch_id) REFERENCES product_list_import_batches(id) ON DELETE CASCADE,
+    FOREIGN KEY(local_product_id) REFERENCES products(id) ON DELETE SET NULL,
+    FOREIGN KEY(website_snapshot_id) REFERENCES prestashop_product_snapshots(id) ON DELETE SET NULL
+  );`);
+
+  // 索引
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_product_list_batch ON product_list_import_items(batch_id);
+    CREATE INDEX IF NOT EXISTS idx_product_list_reference ON product_list_import_items(normalized_reference);
+    CREATE INDEX IF NOT EXISTS idx_product_list_status ON product_list_import_items(check_status);
+    CREATE INDEX IF NOT EXISTS idx_product_list_local_product ON product_list_import_items(local_product_id);
+    CREATE INDEX IF NOT EXISTS idx_product_list_website_snapshot ON product_list_import_items(website_snapshot_id);`);
 
   console.log('Database initialized successfully.');
 }

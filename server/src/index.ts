@@ -15,6 +15,8 @@ import importRouter from './routes/import';
 import exportRouter from './routes/export';
 import uploadRouter from './routes/upload';
 import prestashopRouter from './routes/prestashop';
+import websiteImportRouter from './routes/websiteImport';
+import productListImportRouter from './routes/productListImport';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -39,6 +41,9 @@ app.use('/api/import', importRouter);
 app.use('/api/export', exportRouter);
 app.use('/api/upload', uploadRouter);
 app.use('/api/prestashop', prestashopRouter);
+app.use('/api/website-import', websiteImportRouter);
+app.use('/api/product-lookup', websiteImportRouter);
+app.use('/api/product-list-import', productListImportRouter);
 
 // 根路径提示
 app.get('/', (req, res) => {

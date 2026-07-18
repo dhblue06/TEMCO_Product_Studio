@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { productsApi } from '../services/api';
 import { Product } from '../types';
 import ImageViewerModal from './ImageViewerModal';
@@ -35,6 +35,8 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ reference, refreshKey, on
   const [localContent, setLocalContent] = useState<any>(null);
   const [localStatus, setLocalStatus] = useState('');
   const [message, setMessage] = useState('');
+  const [priceInput, setPriceInput] = useState('');
+  const [quantityInput, setQuantityInput] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [uploading, setUploading] = useState(false);
@@ -52,6 +54,9 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ reference, refreshKey, on
   const [savingImageId, setSavingImageId] = useState<number | null>(null);
   const [generatingAlt, setGeneratingAlt] = useState<number | null>(null);
   const [generatingCopy, setGeneratingCopy] = useState(false);
+  const [slotCount, setSlotCount] = useState(6);
+  const [showAllImages, setShowAllImages] = useState(false);
+  const [togglingActive, setTogglingActive] = useState(false);
 
   const GEN_TYPES = [
     { id: 'white_product', icon: '⬜', label: '产品白底精修图', desc: '基于原始产品图生成白底产品图' },
@@ -61,13 +66,24 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ reference, refreshKey, on
     { id: 'scene3', icon: '🔍', label: '使用场景图 3', desc: '产品细节特写' },
   ];
 
-const SLOTS = [
-  { role: 'main_product', icon: '🖼', label: '产品主图', desc: '产品主体白底精修图' },
-  { role: 'packaging', icon: '📦', label: '产品包装图', desc: '产品包装盒展示' },
-  { role: 'scene1', icon: '🏠', label: '场景图 1', desc: '真实使用环境' },
-  { role: 'scene2', icon: '🏢', label: '场景图 2', desc: '专业商用场景' },
-  { role: 'scene3', icon: '🔍', label: '场景图 3', desc: '产品细节特写' },
-];
+const getSlots = (count: number) => {
+  const baseSlots = [
+    { role: 'main_product', icon: '🖼', label: '产品主图', desc: '产品主体白底精修图' },
+    { role: 'packaging', icon: '📦', label: '产品包装图', desc: '产品包装盒展示' },
+  ];
+  const extraSlots = [
+    { role: 'scene1', icon: '🏠', label: '场景图 1', desc: '真实使用环境' },
+    { role: 'scene2', icon: '🏢', label: '场景图 2', desc: '专业商用场景' },
+    { role: 'scene3', icon: '🔍', label: '场景图 3', desc: '产品细节特写' },
+    { role: 'scene4', icon: '📎', label: '场景图 4', desc: '使用场景扩展' },
+    { role: 'scene5', icon: '🔬', label: '场景图 5', desc: '功能细节展示' },
+    { role: 'scene6', icon: '📋', label: '场景图 6', desc: '说明图' },
+    { role: 'scene7', icon: '📐', label: '场景图 7', desc: '尺寸/规格图' },
+    { role: 'scene8', icon: '🏷', label: '场景图 8', desc: '标签/包装细节' },
+  ];
+  const slots = [...baseSlots, ...extraSlots.slice(0, count - 2)];
+  return slots;
+};
 
   const fetchDetail = async (targetReference = reference) => {
     if (!targetReference) return;
@@ -78,6 +94,8 @@ const SLOTS = [
         setProduct(res.data);
         setLocalContent(res.data.content);
         setLocalStatus(res.data.status);
+        setPriceInput(String(res.data?.price ?? ''));
+        setQuantityInput(String(res.data?.quantity ?? 0));
       }
     } catch (err: any) {
       console.error(err);
@@ -97,13 +115,13 @@ const SLOTS = [
       const content = p.content?.es;
       let newStatus = '待处理';
 
-      if (imgs.some((img: any) => img.role === 'main_product')) newStatus = '已匹配图片';
+      if (imgs.some((img: any) => getImageSlot(img) === 'main_product')) newStatus = '已匹配图片';
       if (content?.name) newStatus = '双语文案已生成';
       if (content?.seoTitle && content?.seoDescription) newStatus = 'SEO通过';
       if (p.prestashop_id) {
         if (p.prestashop_sync_status === 'synced') newStatus = '已上传';
         else if (p.prestashop_sync_status === 'failed') newStatus = '上传失败';
-        else newStatus = '可导出PrestaShop';
+        else newStatus = '已上传';
       }
 
       if (newStatus !== p.status) {
@@ -143,6 +161,8 @@ const SLOTS = [
 
   const isSourceImage = (img: any) => !['white_bg', 'scene', 'processed', 'ai_generated'].includes(img.status || 'ok');
 
+  const getImageSlot = (img: any) => img.image_slot || img.imageSlot || img.role || img.role || '';
+
   const updateLocalImage = (imageId: number, field: string, value: string | number) => {
     setProduct(prev => {
       if (!prev) return prev;
@@ -161,20 +181,40 @@ const SLOTS = [
     setLocalContent((prev: any) => ({ ...prev, [lang]: { ...(prev?.[lang] || {}), [field]: value } }));
   };
 
+  const buildProductPayload = () => {
+    const parsedPrice = parseFloat(String(priceInput).replace(',', '.'));
+    const parsedQuantity = parseInt(quantityInput, 10);
+    const nextPrice = !isNaN(parsedPrice) && parsedPrice >= 0 ? parsedPrice : ((product as any)?.price ?? 0);
+    const nextQuantity = !isNaN(parsedQuantity) && parsedQuantity >= 0 ? parsedQuantity : ((product as any)?.quantity ?? 0);
+    return {
+      status: localStatus,
+      category: product?.category || '',
+      brand: product?.brand || '',
+      selling_points: product?.selling_points || '',
+      product_intro: product?.product_intro || '',
+      ean13: product?.ean13 || '',
+      upc: product?.upc || '',
+      mpn: product?.mpn || '',
+      price: nextPrice,
+      wholesale_price: (product as any)?.wholesale_price ?? 0,
+      quantity: nextQuantity,
+      video_url: product?.video_url || '',
+      content: localContent,
+    };
+  };
   const handleSave = async () => {
     if (!reference || !product) return;
     setSaving(true); setMessage('');
     try {
-      const res = await productsApi.update(reference, {
-        status: localStatus,
-        category: product.category || '',
-        brand: product.brand || '',
-        selling_points: product.selling_points || '',
-        product_intro: product.product_intro || '',
-        content: localContent,
-      });
-      if (res.success) { setMessage('✅ 保存成功'); onUpdated(); }
-      else setMessage(`❌ ${res.error || '保存失败'}`);
+      const payload = buildProductPayload();
+      const res = await productsApi.update(reference, payload);
+      if (res.success) {
+        setProduct(prev => prev ? ({ ...prev, price: payload.price, quantity: payload.quantity } as any) : prev);
+        setPriceInput(String(payload.price ?? 0));
+        setQuantityInput(String(payload.quantity ?? 0));
+        setMessage('✅ 保存成功');
+        onUpdated();
+      } else setMessage(`❌ ${res.error || '保存失败'}`);
     } catch (err: any) { setMessage(`❌ ${err.message}`); }
     finally { setSaving(false); setTimeout(() => setMessage(''), 3000); }
   };
@@ -187,7 +227,8 @@ const SLOTS = [
       const fd = new FormData();
       Array.from(files).forEach(f => fd.append('images', f));
       fd.append('status', uploadKind);
-      fd.append('role', uploadTarget || 'gallery'); // 传入槽位角色
+      fd.append('image_slot', uploadTarget || '');
+      fd.append('role', uploadTarget || 'gallery');
       const res = await fetch(`/api/upload/upload-batch/${encodeURIComponent(reference)}`, { method: 'POST', body: fd });
       const data = await res.json();
       if (data.success) {
@@ -210,6 +251,7 @@ const SLOTS = [
           alt: img.alt || '',
           status: img.status || 'ok',
           role: img.role || 'gallery',
+          image_slot: getImageSlot(img),
           image_index: img.image_index || img.imageIndex || 1,
         }),
       });
@@ -232,7 +274,7 @@ const SLOTS = [
 
   const handleDeleteImage = async (img: any) => {
     const name = img.original_name || img.originalName || `#${img.id}`;
-    if (!window.confirm(`确定删除图片 ${name}？本地文件也会一起删除。`)) return;
+    if (!window.confirm(`确定删除图片 #${img.id}？本地文件也会一起删除。`)) return;
     setSavingImageId(img.id); setMessage('');
     try {
       const res = await fetch(`/api/upload/image/${img.id}`, { method: 'DELETE' });
@@ -259,7 +301,10 @@ const SLOTS = [
           product_intro: product.product_intro || '',
         });
       }
-      const res = await fetch(`/api/copy/generate/${encodeURIComponent(reference)}`, { method: "POST" });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 60000);
+      const res = await fetch(`/api/copy/generate/${encodeURIComponent(reference)}`, { method: "POST", signal: controller.signal });
+      clearTimeout(timeout);
       const data = await res.json();
       if (data.success) {
         // 刷新详情以显示生成的文案
@@ -272,7 +317,9 @@ const SLOTS = [
           setLocalContent({ es: esContent, zh: zhContent });
         }
       }
-    } catch (err) {}
+    } catch (err: any) {
+      setMessage(`❌ ${err.message || '生成失败'}`);
+    }
     setGeneratingCopy(false);
   };
 
@@ -411,7 +458,7 @@ const SLOTS = [
   // 一键生成所有空缺槽位
   const handleBatchGenerateAll = async () => {
     const images = product?.images || [];
-    const missingRoles = SLOTS.filter(s => !images.find((img: any) => img.role === s.role));
+    const missingRoles = getSlots(slotCount).filter(s => !images.find((img: any) => getImageSlot(img) === s.role));
     if (missingRoles.length === 0) {
       setGenLog(['✅ 所有槽位已有图片']);
       return;
@@ -437,27 +484,30 @@ const SLOTS = [
 
   const handleSyncPS = async () => {
     if (!reference) return;
-    setSyncingPS(true); setPsSyncMessage('⏳ 正在保存当前内容并同步到 PrestaShop...');
+    setSyncingPS(true); setPsSyncMessage('⏳ 正在保存当前价格、条形码、库存并同步到 PrestaShop...');
     try {
-      // 先保存当前编辑的内容，确保同步的是最新版本
       if (product) {
-        await productsApi.update(reference, {
-          status: localStatus,
-          category: product.category || '',
-          brand: product.brand || '',
-          selling_points: product.selling_points || '',
-          product_intro: product.product_intro || '',
-          content: localContent,
-        });
+        const payload = buildProductPayload();
+        const saveRes = await productsApi.update(reference, payload);
+        if (!saveRes.success) throw new Error(saveRes.error || '保存当前产品信息失败');
+        setProduct(prev => prev ? ({ ...prev, price: payload.price, quantity: payload.quantity } as any) : prev);
+        setPriceInput(String(payload.price ?? 0));
+        setQuantityInput(String(payload.quantity ?? 0));
       }
       const res = await prestashopApi.syncProduct(reference, {
-        syncContent: true, syncSeo: true, syncCategory: true, syncBrand: true,
+        syncContent: true,
+        syncSeo: true,
+        syncCategory: true,
+        syncBrand: true,
+        syncPrice: true,
+        syncStock: true,
       });
       if (res.success) {
         setPsSyncMessage(`✅ ${res.data?.details || '同步成功'}`);
         onUpdated();
+        await refreshDetail();
       } else {
-        setPsSyncMessage(`❌ ${res.data?.error || '同步失败'}`);
+        setPsSyncMessage(`❌ ${res.data?.error || res.error || '同步失败'}`);
       }
     } catch (err: any) { setPsSyncMessage(`❌ ${err.message}`); }
     finally { setSyncingPS(false); }
@@ -469,13 +519,41 @@ const SLOTS = [
     try {
       const res = await prestashopApi.syncImages(reference, 'append');
       if (res.success) {
-        setPsSyncMessage(`✅ ${res.successCount}/${res.total} 张图片同步成功（跳过 ${res.skippedCount}，失败 ${res.failedCount}）`);
+        const msg = `✅ ${res.successCount}/${res.total} 张图片同步成功（跳过 ${res.skippedCount}，失败 ${res.failedCount}）`;
+        if (res.failedCount > 0 && res.results) {
+          const errors = res.results.filter((r: any) => r.status === 'failed').map((r: any) => `  • ${r.role}: ${r.error || '未知错误'}`);
+          setPsSyncMessage(msg + '\n❌ 失败详情:\n' + errors.join('\n'));
+        } else {
+          setPsSyncMessage(msg);
+        }
         onUpdated();
       } else {
         setPsSyncMessage(`❌ ${res.error || '同步失败'}`);
       }
     } catch (err: any) { setPsSyncMessage(`❌ ${err.message}`); }
     finally { setSyncingPS(false); }
+  };
+
+  const handleToggleActive = async () => {
+    if (!reference || !product?.prestashop_id) return;
+    const newActive = product.active === '0' ? '1' : '0';
+    if (!window.confirm(`确定${newActive === '1' ? '激活' : '停用'}此商品？`)) return;
+    setTogglingActive(true);
+    try {
+      const res = await fetch(`/api/prestashop/toggle-active/${encodeURIComponent(reference)}`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        setProduct(prev => prev ? { ...prev, active: data.data?.newActive || newActive } as any : prev);
+        setMessage(`✅ 已${newActive === '1' ? '激活' : '停用'}`);
+      } else {
+        setMessage(`❌ ${data.error || '操作失败'}`);
+      }
+    } catch (err: any) {
+      setMessage(`❌ ${err.message}`);
+    } finally {
+      setTogglingActive(false);
+      setTimeout(() => setMessage(''), 3000);
+    }
   };
 
   if (!reference) return (
@@ -498,6 +576,19 @@ const SLOTS = [
             onClick={(e) => { e.stopPropagation(); }}>
             📂 文件夹
           </a>
+          {product.prestashop_id && (
+            <a href={`https://temcostar.com/index.php?id_product=${product.prestashop_id}&controller=product`} target="_blank" rel="noreferrer"
+              className="btn btn-sm" style={{ marginLeft: 4, textDecoration: 'none', cursor: 'pointer' }} title="在网店中查看">
+              🌐 网页
+            </a>
+          )}
+          {product.prestashop_id && (
+            <button className="btn btn-sm" style={{ marginLeft: 4, cursor: 'pointer' }}
+              onClick={handleToggleActive} disabled={togglingActive}
+              title={product.active === '0' ? '点击激活' : '点击停用'}>
+              {togglingActive ? '⏳' : product.active === '0' ? '🔴 未激活' : '🟢 已激活'}
+            </button>
+          )}
           <a href={`/api/upload/export-data/${encodeURIComponent(reference||"")}`} target="_blank" rel="noreferrer"
             className="btn btn-sm" style={{ marginLeft: 4, textDecoration: "none", cursor: "pointer" }} title="导出产品数据到文件夹">
             💾 导出数据
@@ -536,12 +627,13 @@ const SLOTS = [
         <div className="detail-section">
           <h4>基本信息</h4>
           <div className="detail-field"><label>Reference</label><input value={product.reference} disabled /></div>
-          <div className="detail-field"><label>价格 (€)</label><input type="number" step="0.01" min="0" value={(product as any).price || 0} onChange={(e) => setProduct({...product, price: parseFloat(e.target.value) || 0} as any)} /></div>
+          <div className="detail-field"><label>价格 (€)</label><input type="text" inputMode="decimal" step="0.01" min="0" value={priceInput} onChange={(e) => setPriceInput(e.target.value)} onBlur={() => { const p = parseFloat(priceInput); if (!isNaN(p) && p >= 0) setProduct({...product, price: p} as any); else setPriceInput('0'); }} /></div>
+          <div className="detail-field"><label>库存数量</label><input type="number" inputMode="numeric" min="0" step="1" value={quantityInput} onChange={(e) => setQuantityInput(e.target.value)} onBlur={() => { const q = parseInt(quantityInput, 10); if (!isNaN(q) && q >= 0) setProduct({...product, quantity: q} as any); else setQuantityInput('0'); }} /></div>
           <div className="detail-field"><label>分类</label><EditableSelect value={product.category || ''} options={allCategories} placeholder="选择或新增分类" onChange={v => setProduct(prev => prev ? { ...prev, category: v } : prev)} /></div>
           <div className="detail-field"><label>品牌</label><EditableSelect value={product.brand || ''} options={allBrands} placeholder="选择或新增品牌" onChange={v => setProduct(prev => prev ? { ...prev, brand: v } : prev)} /></div>
           <div className="detail-field"><label>状态</label>
             <select value={localStatus} onChange={e => setLocalStatus(e.target.value)}>
-              {['待处理','缺图片文件夹','已匹配图片','已匹配视频','双语文案待生成','双语文案已生成','西语文案待审核','图片ALT待生成','SEO待检查','SEO通过','可导出PrestaShop','已导出','上传失败','已上传'].map(s =>
+              {['待处理','缺图片文件夹','已上传图片','已匹配图片','已匹配视频','双语文案待生成','双语文案已生成','西语文案待审核','图片ALT待生成','SEO待检查','SEO通过','已导出','上传失败','已上传','已下架'].map(s =>
                 <option key={s} value={s}>{s}</option>
               )}
             </select>
@@ -619,6 +711,10 @@ const SLOTS = [
               正在生成西语正式文案和中文内部对照版...
             </div>
           )}
+          <button className="btn btn-primary btn-sm" onClick={handleSyncPS} disabled={syncingPS}
+            style={{ width: '100%', justifyContent: 'center', marginTop: 4 }}>
+            {syncingPS ? '⏳ 同步中...' : '📤 同步到 PrestaShop'}
+          </button>
         </div>
 
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
@@ -636,18 +732,27 @@ const SLOTS = [
 
                 {/* ========== 5 槽位图片管理 ========== */}
         <div className="detail-section" style={{ borderTop: '2px solid var(--accent)', paddingTop: 12 }}>
-          <h4 style={{ color: 'var(--accent)' }}>📸 产品图片（5 槽位）</h4>
+          <h4 style={{ color: 'var(--accent)' }}>📸 产品图片（{slotCount} 槽位）
+            {[6, 8, 10].map(n => (
+              <button key={n} className={`btn btn-sm ${slotCount === n ? 'btn-primary' : ''}`}
+                style={{ fontSize: 10, padding: '2px 6px', marginLeft: n === 6 ? 8 : 2 }}
+                onClick={() => setSlotCount(n)}>{n}槽</button>
+            ))}</h4>
           <button className="btn btn-sm" style={{ fontSize: 11, cursor: 'pointer', marginLeft: 4 }}
             onClick={(e) => { e.stopPropagation(); handleGenerateAllAlt(); }}
             disabled={generatingAlt !== null}>
             {generatingAlt === -1 ? '⏳' : '🤖'} 一键ALT
           </button>
+          <button className="btn btn-sm" style={{ fontSize: 11, cursor: 'pointer', marginLeft: 4 }}
+            onClick={(e) => { e.stopPropagation(); handleSyncImages(); }} disabled={syncingPS}>
+            🖼 同步图片
+          </button>
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10, lineHeight: 1.6 }}>
             每个产品有 5 个固定图片槽位。每个槽位可以上传本地图片或 AI 生成。
           </div>
           <input ref={fileInputRef} type="file" accept="image/*" onChange={handleUpload} style={{ display: 'none' }} />
-          {SLOTS.map(slot => {
-            const slotImg = productImages.find((img) => img.role === slot.role);
+          {getSlots(slotCount).map(slot => {
+            const slotImg = productImages.find((img: any) => getImageSlot(img) === slot.role);
             const url = slotImg ? getImageUrl(slotImg) : '';
             return (
               <div key={slot.role} style={{
@@ -740,6 +845,53 @@ const SLOTS = [
                 </div>
               ))}
             </div>
+          )}
+        </div>
+
+        {/* ========== 全部图片管理 ========== */}
+        <div className="detail-section" style={{ borderTop: '2px solid var(--accent)', paddingTop: 12 }}>
+          <h4 style={{ color: 'var(--accent)' }}>🖼 全部图片（共 {productImages.length} 张）
+            <button className="btn btn-sm" style={{ marginLeft: 8, fontSize: 11, cursor: 'pointer' }}
+              onClick={() => setShowAllImages(!showAllImages)}>
+              {showAllImages ? '收起' : '展开'}
+            </button>
+          </h4>
+          {showAllImages && productImages.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+              {productImages.map((img: any) => {
+                const url = getImageUrl(img);
+                return (
+                  <div key={img.id} style={{ display: 'flex', gap: 8, padding: 8, border: '1px solid var(--border-color)', borderRadius: 6, background: '#fff' }}>
+                    <div style={{ width: 60, height: 60, borderRadius: 4, overflow: 'hidden', border: '1px solid var(--border-color)', flex: '0 0 auto', background: '#fafafa' }}>
+                      {url ? <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} /> : <div style={{ fontSize: 20, textAlign: 'center', lineHeight: '60px' }}>🖼</div>}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0, fontSize: 12 }}>
+                      <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 4, flexWrap: 'wrap' }}>
+                        <span style={{ padding: '1px 6px', borderRadius: 999, background: getImageSlot(img) === 'main_product' ? '#e6f4ff' : '#f5f5f5', fontSize: 11 }}>{getImageSlot(img) || img.role}</span>
+                        <span style={{ color: img.alt ? 'var(--success)' : 'var(--warning)', fontSize: 11 }}>{img.alt ? '✅ALT' : '⚠无ALT'}</span>
+                        <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>#{img.image_index || img.imageIndex}</span>
+                      </div>
+                      <div style={{ color: 'var(--text-secondary)', fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={img.original_name || img.originalName}>{img.original_name || img.originalName || '-'}</div>
+                      <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                        <input value={img.alt || ''} placeholder="ALT..."
+                          onChange={(e) => {
+                            setProduct((prev: any) => prev ? { ...prev, images: (prev.images || []).map((i: any) => i.id === img.id ? { ...i, alt: e.target.value } : i) } : prev);
+                          }}
+                          style={{ flex: 1, fontSize: 11, padding: '2px 6px', border: '1px solid var(--border-color)', borderRadius: 3, background: 'transparent', color: 'var(--text-primary)' }} />
+                        <button className="btn btn-sm" style={{ fontSize: 10, padding: '2px 6px', color: 'var(--error)' }}
+                          onClick={(e) => { e.stopPropagation(); handleDeleteImage(img); }}
+                          disabled={savingImageId === img.id}>
+                          🗑 删除
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {showAllImages && productImages.length === 0 && (
+            <div style={{ padding: 12, color: 'var(--text-muted)', fontSize: 13 }}>暂无图片</div>
           )}
         </div>
 

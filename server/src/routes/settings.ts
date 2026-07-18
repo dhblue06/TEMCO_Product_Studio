@@ -9,7 +9,11 @@ const ALLOWED_SETTINGS = new Set([
   'image_provider', 'image_api_base_url', 'image_api_key', 'image_model', 'image_size', 'image_style',
   'google_sheet_url', 'google_sheet_mode', 'google_drive_mode', 'google_api_key', 'google_access_token',
   'prestashop_enabled', 'prestashop_base_url', 'prestashop_api_key', 'prestashop_language_id', 'prestashop_upload_mode',
+  'prestashop_default_lang_id', 'prestashop_spanish_lang_id', 'prestashop_chinese_lang_id',
+  'prestashop_default_category_id', 'prestashop_default_manufacturer_id', 'prestashop_default_shop_id',
+  'prestashop_video_mode', 'prestashop_image_sync_mode', 'prestashop_batch_limit',
   'batch_copy_limit', 'batch_image_limit', 'require_review_before_export',
+  'scan_input_path',
 ]);
 
 const SENSITIVE_KEYS = new Set([

@@ -26,6 +26,8 @@ export const productsApi = {
     category?: string;
     brand?: string;
     dateFilter?: string;
+    websiteStatus?: string;
+    refs?: string;
     uploadStatus?: string;
     page?: number;
     pageSize?: number;

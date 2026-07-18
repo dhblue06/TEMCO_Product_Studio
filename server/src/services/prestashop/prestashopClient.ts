@@ -126,24 +126,34 @@ export class PrestaShopClient {
       body: xml,
     });
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      let errMsg = `HTTP ${response.status}`;
+    const text = await response.text().catch(() => '');
+    const parseErrorMessage = (fallback: string) => {
       try {
         const parsed = this.parser.parse(text);
-        if (parsed?.errors?.error) {
-          const err = Array.isArray(parsed.errors.error) ? parsed.errors.error[0] : parsed.errors.error;
-          errMsg = err.message || err['@_message'] || err.msg || JSON.stringify(err);
+        const unwrapped = parsed?.prestashop || parsed;
+        const errorNode = unwrapped?.errors?.error;
+        if (errorNode) {
+          const errors = Array.isArray(errorNode) ? errorNode : [errorNode];
+          return errors.map((err: any) => err.message || err['#text'] || err['@_message'] || err.msg || JSON.stringify(err)).join('; ');
         }
-      } catch {
-        errMsg = text.substring(0, 200).replace(/<[^>]*>/g, ' ').trim() || errMsg;
-      }
-      throw new Error(`PrestaShop Sync ${errMsg}`);
+      } catch {}
+      return text.substring(0, 500).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() || fallback;
+    };
+
+    if (!response.ok) {
+      throw new Error(`PrestaShop Sync HTTP ${response.status}: ${parseErrorMessage(response.statusText || '请求失败')}`);
     }
 
-    const text = await response.text();
+    if (!text.trim()) {
+      throw new Error('PrestaShop Sync 创建成功响应为空，无法取得商品 ID');
+    }
+
     const parsed = this.parser.parse(text) as any;
-    return (parsed?.prestashop || parsed) as any;
+    const unwrapped = (parsed?.prestashop || parsed) as any;
+    if (unwrapped?.errors?.error) {
+      throw new Error(`PrestaShop Sync: ${parseErrorMessage('返回错误')}`);
+    }
+    return unwrapped;
   }
 
   /**
@@ -189,37 +199,67 @@ export class PrestaShopClient {
   async uploadProductImage(productId: number, imagePath: string): Promise<{ imageId: number | null; success: boolean; error?: string }> {
     try {
       if (!fs.existsSync(imagePath)) {
-        return { imageId: null, success: false, error: '图片文件不存在' };
+        return { imageId: null, success: false, error: "图片文件不存在" };
       }
 
-      const urlObj = new URL(`${this.getBaseUrl()}/images/products/${productId}`);
-      urlObj.searchParams.set('ws_key', this.config.apiKey);
+      const url = `${this.getBaseUrl()}/images/products/${parseInt(String(productId), 10) || 0}?ws_key=${this.config.apiKey}`;
 
-      // 使用 exec 调用 curl 来上传（确保兼容性）
-      const { execSync } = require('child_process');
-      const curlCmd = `curl -s -X POST "${urlObj.toString()}" -F "image=@${imagePath}"`;
-      
-      try {
-        const stdout = execSync(curlCmd, { encoding: 'utf-8', timeout: 30000 });
-        const parsed = this.parser.parse(stdout) as any;
-        const unwrapped = parsed?.prestashop || parsed;
-        if (unwrapped?.errors?.error) {
-          const e = Array.isArray(unwrapped.errors.error) ? unwrapped.errors.error[0] : unwrapped.errors.error;
-          return { imageId: null, success: false, error: e.message || JSON.stringify(e) };
+      // 检查图片大小，超过 1900KB 时压缩
+      let uploadPath = imagePath;
+      const stat = fs.statSync(imagePath);
+      if (stat.size > 1900 * 1024) {
+        try {
+          const sharp = require('sharp');
+          const compressedPath = imagePath + '.compressed.jpg';
+          await sharp(imagePath)
+            .jpeg({ quality: 80, mozjpeg: true })
+            .resize(2000, 2000, { fit: 'inside', withoutEnlargement: true })
+            .toFile(compressedPath);
+          uploadPath = compressedPath;
+        } catch {
+          // 压缩失败就用原图
         }
-        const imageId = unwrapped?.image?.id;
-        return { imageId: imageId ? Number(imageId) : null, success: true };
-      } catch (execErr: any) {
-        return { imageId: null, success: false, error: execErr.message };
       }
+
+      const { exec } = require('child_process');
+      const result = await new Promise<any>((resolve) => {
+        exec(`curl -s -X POST "${url}" -F "image=@${uploadPath}"`, {
+          maxBuffer: 100 * 1024 * 1024,
+          timeout: 120000,
+        }, (err: any, stdout: string) => {
+          if (!stdout) {
+            resolve({ imageId: null, success: false, error: err?.message || '无响应' });
+            return;
+          }
+          try {
+            const { XMLParser } = require('fast-xml-parser');
+            const parser = new XMLParser({ ignoreAttributes: false });
+            const parsed = parser.parse(stdout);
+            const unwrapped = parsed?.prestashop || parsed;
+            if (unwrapped?.errors?.error) {
+              const e = Array.isArray(unwrapped.errors.error) ? unwrapped.errors.error[0] : unwrapped.errors.error;
+              resolve({ imageId: null, success: false, error: e.message || JSON.stringify(e) });
+              return;
+            }
+            const imageId = unwrapped?.image?.id;
+            resolve({ imageId: imageId ? Number(imageId) : null, success: true });
+          } catch (e: any) {
+            resolve({ imageId: null, success: false, error: e.message });
+          }
+        });
+      });
+
+      // 清理临时压缩文件
+      if (uploadPath !== imagePath) {
+        try { fs.unlinkSync(uploadPath); } catch {}
+      }
+
+      return result;
     } catch (err: any) {
       return { imageId: null, success: false, error: err.message };
     }
   }
 
-  /**
-   * 设置图片为封面
-   */
   async updateProductImageCover(productId: number, imageId: number, cover: 0 | 1): Promise<void> {
     const url = `${this.getBaseUrl()}/images/products/${productId}/${imageId}?ws_key=${this.config.apiKey}`;
 
@@ -241,6 +281,45 @@ export class PrestaShopClient {
   }
 
   // 辅助：确保返回数组（PrestaShop 单条时返回对象，多条时返回数组）
+
+  async updateProductStock(productId: number, quantity: number, shopId?: string | number): Promise<{ success: boolean; stockAvailableId?: number; error?: string }> {
+    try {
+      const safeProductId = parseInt(String(productId), 10) || 0;
+      const safeQuantity = Math.max(0, parseInt(String(quantity || 0), 10) || 0);
+      const data = await this.get<any>('stock_availables', {
+        'filter[id_product]': `[${safeProductId}]`,
+        display: 'full',
+      });
+      const stockList = this.asArray(data?.stock_availables?.stock_available);
+      const stock = stockList.find((s: any) => String(s.id_product_attribute || '0') === '0') || stockList[0];
+      if (!stock?.id) {
+        return { success: false, error: `未找到商品 ${safeProductId} 的 stock_available 记录` };
+      }
+
+      const stockAvailableId = Number(stock.id);
+      const idShop = stock.id_shop || shopId || this.config.defaultShopId || '1';
+      const idShopGroup = stock.id_shop_group || '0';
+      const dependsOnStock = stock.depends_on_stock ?? '0';
+      const outOfStock = stock.out_of_stock ?? '2';
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<prestashop xmlns:xlink="http://www.w3.org/1999/xlink">
+  <stock_available>
+    <id>${stockAvailableId}</id>
+    <id_product>${safeProductId}</id_product>
+    <id_product_attribute>${stock.id_product_attribute || 0}</id_product_attribute>
+    <id_shop>${idShop}</id_shop>
+    <id_shop_group>${idShopGroup}</id_shop_group>
+    <quantity>${safeQuantity}</quantity>
+    <depends_on_stock>${dependsOnStock}</depends_on_stock>
+    <out_of_stock>${outOfStock}</out_of_stock>
+  </stock_available>
+</prestashop>`;
+      await this.putXml('stock_availables', stockAvailableId, xml);
+      return { success: true, stockAvailableId };
+    } catch (err: any) {
+      return { success: false, error: err?.message || String(err) };
+    }
+  }
   private asArray(val: any): any[] {
     if (val === null || val === undefined) return [];
     const arr = Array.isArray(val) ? val : [val];

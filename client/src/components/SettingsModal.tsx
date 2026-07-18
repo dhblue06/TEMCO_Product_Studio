@@ -6,7 +6,7 @@ interface SettingsModalProps {
   onClose: () => void;
 }
 
-type SettingsTab = 'copy' | 'article' | 'image' | 'google' | 'prestashop';
+type SettingsTab = 'copy' | 'article' | 'image' | 'google' | 'prestashop' | 'scan';
 type TestSection = 'copy' | 'article' | 'image' | 'ps' | 'lang' | 'cat' | 'mfg' | 'shop';
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
@@ -124,6 +124,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
               { key: 'image', label: '🖼 图片 API' },
               { key: 'google', label: '🔗 Google 设置' },
               { key: 'prestashop', label: '🛒 PrestaShop' },
+              { key: 'scan', label: '📂 扫描设置' },
             ] as const).map((tab) => (
               <button
                 key={tab.key}
@@ -350,6 +351,25 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
                   <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{psResult}</pre>
                 </div>
               )}
+            </div>
+          )}
+
+          {activeTab === 'scan' && (
+            <div>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+                设置扫描文件夹路径。扫描时系统会读取此文件夹中的图片文件，按文件名匹配产品后自动分配到对应产品的图片槽位。
+              </div>
+              <div className="detail-field">
+                <label>扫描文件夹路径</label>
+                <input
+                  value={settings.scan_input_path || ''}
+                  onChange={(e) => handleChange('scan_input_path', e.target.value)}
+                  placeholder="留空则默认使用 server/data/scan-input/"
+                />
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                  可填写绝对路径（如 D:\\images\\scan）或相对路径（相对于项目根目录）
+                </div>
+              </div>
             </div>
           )}
 

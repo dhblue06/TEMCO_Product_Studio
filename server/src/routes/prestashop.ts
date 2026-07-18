@@ -19,7 +19,7 @@ function loadConfig() {
   return {
     baseUrl: getSetting('prestashop_base_url') || 'https://temcostar.com',
     apiKey: getSetting('prestashop_api_key') || '',
-    defaultLangId: getSetting('prestashop_default_lang_id') || '1',
+    defaultLangId: getSetting('prestashop_default_lang_id') || getSetting('prestashop_language_id') || '1',
     spanishLangId: getSetting('prestashop_spanish_lang_id') || '1',
     chineseLangId: getSetting('prestashop_chinese_lang_id') || '',
     defaultCategoryId: getSetting('prestashop_default_category_id') || '3',
@@ -59,11 +59,15 @@ router.patch('/config', (req: Request, res: Response) => {
       'prestashop_image_sync_mode', 'prestashop_batch_limit',
     ];
 
-    const stmt = db.prepare('UPDATE api_settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = ?');
+    const stmt = db.prepare(`
+      INSERT INTO api_settings (key, value, updated_at)
+      VALUES (?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+    `);
     const batch = db.transaction(() => {
       for (const [key, value] of Object.entries(updates)) {
         if (allowed.includes(key)) {
-          stmt.run(String(value), key);
+          stmt.run(key, String(value));
         }
       }
     });
@@ -202,6 +206,66 @@ router.post('/sync-product/:ref', async (req: Request, res: Response) => {
     };
     const result = await syncProductByRef(req.params.ref, options);
     res.json({ success: result.success, data: result });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/prestashop/toggle-active/:ref - 激活/停用商品
+router.post('/toggle-active/:ref', async (req: Request, res: Response) => {
+  try {
+    const { ref } = req.params;
+    const db = getDatabase();
+
+    const psBaseUrl = (db.prepare("SELECT value FROM api_settings WHERE key = 'prestashop_base_url'").get() as any)?.value || 'https://temcostar.com';
+    const psApiKey = (db.prepare("SELECT value FROM api_settings WHERE key = 'prestashop_api_key'").get() as any)?.value || '';
+    const product = db.prepare('SELECT reference, prestashop_id FROM products WHERE reference = ?').get(ref) as any;
+
+    if (!product || !product.prestashop_id) {
+      return res.status(404).json({ success: false, error: '商品未同步到 PrestaShop' });
+    }
+
+    // 1. 获取当前商品 XML
+    const url = `${psBaseUrl}/api/products/${product.prestashop_id}?ws_key=${psApiKey}`;
+    const resp = await fetch(url);
+    if (!resp.ok) return res.status(400).json({ success: false, error: `PrestaShop API ${resp.status}` });
+
+    const xml = await resp.text();
+
+    // 2. 提取当前 active 值并取反
+    const activeMatch = xml.match(/<active(?:[^>]*)>(?:<!\[CDATA\[)?([01])(?:\]\]>)?<\/active>/);
+    if (!activeMatch) return res.status(400).json({ success: false, error: '无法读取商品状态' });
+
+    const currentActive = activeMatch[1];
+    const newActive = currentActive === '1' ? '0' : '1';
+
+    // 3. 替换 active 值
+    let modified = xml.replace(/(<active[^>]*>)(?:<!\[CDATA\[)?[01](?:\]\]>)?(<\/active>)/, `$1${newActive}$2`);
+
+    // 4. 移除只读字段
+    const readOnlyFields = ['manufacturer_name', 'supplier_name', 'category_name', 'position_in_category', 'position', 'id_default_image', 'quantity', 'nb_products_recursive'];
+    for (const field of readOnlyFields) {
+      modified = modified.replace(new RegExp(`\\s*<${field}[^>]*>.*?<\\/${field}>\\s*`, 'gs'), '\n');
+    }
+
+    // 5. PUT 回 PrestaShop
+    const putResp = await fetch(`${psBaseUrl}/api/products/${product.prestashop_id}?ws_key=${psApiKey}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/xml' },
+      body: modified,
+    });
+
+    if (!putResp.ok) {
+      const errText = await putResp.text();
+      const errMsg = errText.replace(/<[^>]*>/g, ' ').substring(0, 200).trim();
+      return res.status(400).json({ success: false, error: `PrestaShop 返回错误: ${errMsg}` });
+    }
+
+    res.json({
+      success: true,
+      message: newActive === '1' ? '商品已激活' : '商品已停用',
+      data: { prestashopId: product.prestashop_id, newActive },
+    });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
   }

@@ -16,6 +16,8 @@ router.get('/', (req: Request, res: Response) => {
       pageSize = '50',
       brand,
       dateFilter,
+      refs,
+      websiteStatus,
       sortBy = 'updated_at',
       sortOrder = 'DESC'
     } = req.query;
@@ -34,8 +36,15 @@ router.get('/', (req: Request, res: Response) => {
     }
 
     if (status) {
-      whereClauses.push('p.status = ?');
-      params.push(status);
+      if (status === '已上传图片') {
+        // 动态状态：有图片但无西语文案
+        whereClauses.push('p.id IN (SELECT DISTINCT product_id FROM product_images)');
+        whereClauses.push('p.id NOT IN (SELECT product_id FROM product_contents WHERE lang = \'es\' AND name IS NOT NULL AND name != \'\')');
+        whereClauses.push("(p.status IS NULL OR p.status != '已下架')");
+      } else {
+        whereClauses.push('p.status = ?');
+        params.push(status);
+      }
     }
 
     if (category) {
@@ -57,6 +66,14 @@ router.get('/', (req: Request, res: Response) => {
       // dateFilter 格式: YYYY-MM-DD，比较日期部分
       whereClauses.push("date(p.updated_at) = ?");
       params.push(dateFilter);
+    }
+
+    if (refs) {
+      const refList = (refs as string).split(',').map(r => r.trim()).filter(Boolean);
+      if (refList.length > 0) {
+        whereClauses.push(`p.reference IN (${refList.map(() => '?').join(',')})`);
+        params.push(...refList);
+      }
     }
 
     const allowedSortColumns = ['reference', 'name', 'category', 'status', 'updated_at', 'created_at'];
@@ -84,8 +101,24 @@ router.get('/', (req: Request, res: Response) => {
         zh.description_short as zh_description_short,
         zh.description as zh_description,
         (SELECT COUNT(*) FROM product_images WHERE product_id = p.id) as image_count,
-        (SELECT COUNT(*) FROM product_images WHERE product_id = p.id AND role = 'main_product') as main_image_count,
-        (SELECT COUNT(*) FROM product_videos WHERE product_id = p.id) as video_count
+        (SELECT COUNT(*) FROM product_images WHERE product_id = p.id AND (image_slot = 'main_product' OR role = 'main_product')) as main_image_count,
+        (SELECT COUNT(*) FROM product_videos WHERE product_id = p.id) as video_count,
+        (SELECT
+          CASE
+            WHEN MAX(CASE WHEN pwm.match_status = 'matched' AND pwm.is_on_website = 1 THEN 1 ELSE 0 END) = 1 THEN 'on'
+            WHEN MAX(CASE WHEN pwm.match_status = 'conflict' THEN 1 ELSE 0 END) = 1 THEN 'conflict'
+            WHEN pib.id IS NOT NULL THEN 'off'
+            ELSE 'unknown'
+          END
+          FROM product_website_matches pwm
+          JOIN prestashop_import_batches pib ON pib.id = pwm.batch_id AND pib.is_current = 1 AND pib.status = 'completed'
+          WHERE pwm.product_id = p.id
+        ) as website_status,
+        (SELECT pps.prestashop_id FROM product_website_matches pwm
+          JOIN prestashop_product_snapshots pps ON pps.id = pwm.snapshot_id
+          JOIN prestashop_import_batches pib ON pib.id = pwm.batch_id AND pib.is_current = 1
+          WHERE pwm.product_id = p.id AND pwm.match_status = 'matched' LIMIT 1
+        ) as website_prestashop_id
       FROM products p
       LEFT JOIN product_contents es ON p.id = es.product_id AND es.lang = 'es'
       LEFT JOIN product_contents zh ON p.id = zh.product_id AND zh.lang = 'zh'
@@ -97,22 +130,35 @@ router.get('/', (req: Request, res: Response) => {
     // 动态计算状态
     const productsWithStatus = products.map((p: any) => {
       const hasMainImage = p.main_image_count > 0 || (db.prepare(
-        "SELECT COUNT(*) as c FROM product_images WHERE product_id = ? AND role = 'main_product'"
+        "SELECT COUNT(*) as c FROM product_images WHERE product_id = ? AND (image_slot = 'main_product' OR role = 'main_product')"
       ).get(p.id) as any).c > 0;
-      const hasESPacking = (db.prepare("SELECT COUNT(*) as c FROM product_images WHERE product_id = ? AND role = 'packaging'").get(p.id) as any).c > 0;
-      const hasScene1 = (db.prepare("SELECT COUNT(*) as c FROM product_images WHERE product_id = ? AND role = 'scene1'").get(p.id) as any).c > 0;
+      const hasESPacking = (db.prepare("SELECT COUNT(*) as c FROM product_images WHERE product_id = ? AND image_slot = 'packaging'").get(p.id) as any).c > 0;
+      const hasScene1 = (db.prepare("SELECT COUNT(*) as c FROM product_images WHERE product_id = ? AND image_slot = 'scene1'").get(p.id) as any).c > 0;
       const hasESName = !!p.es_name;
       const hasSEOTitle = !!p.es_seo_title;
       const hasSEODesc = !!p.es_seo_description;
       const hasPsId = !!p.prestashop_id;
       const psSynced = p.prestashop_sync_status === 'synced';
 
+      const dbStatus = p.status || '';
+      const hasAnyImage = p.image_count > 0;
       let computedStatus = '待处理';
-      if (hasMainImage) computedStatus = '已匹配图片';
+      if (hasAnyImage && !hasESName) computedStatus = '已上传图片';
+      else if (hasMainImage) computedStatus = '已匹配图片';
+      if (hasESName && !hasSEOTitle) computedStatus = '双语文案待生成';
+      if (hasESName && hasSEOTitle && !hasSEODesc) computedStatus = '西语文案待审核';
       if (hasESName) computedStatus = '双语文案已生成';
       if (hasSEOTitle && hasSEODesc) computedStatus = 'SEO通过';
-      if (hasPsId && psSynced) computedStatus = '已上传';
-      else if (hasPsId) computedStatus = '可导出PrestaShop';
+      if (hasPsId && psSynced) {
+        if (hasAnyImage && !hasESName) computedStatus = '已上传图片';
+        else if (hasAnyImage) computedStatus = '已上传';
+        else computedStatus = '已上传';
+      }
+      else if (hasPsId) {
+        if (hasAnyImage && !hasESName) computedStatus = '已上传图片';
+        else if (hasAnyImage) computedStatus = '已上传';
+      }
+      if (dbStatus === '已下架') computedStatus = '已下架';
 
       return { ...p, dynamicStatus: computedStatus };
     });
@@ -196,6 +242,35 @@ router.get('/:reference', (req: Request, res: Response) => {
   }
 });
 
+// 创建新商品
+router.post('/', (req: Request, res: Response) => {
+  try {
+    const { reference, name, category, brand } = req.body;
+    if (!reference || !reference.trim()) {
+      return res.status(400).json({ success: false, error: 'Reference 不能为空' });
+    }
+
+    const db = getDatabase();
+    const existing = db.prepare('SELECT id FROM products WHERE reference = ?').get(reference.trim());
+    if (existing) {
+      return res.status(400).json({ success: false, error: `Reference "${reference}" 已存在` });
+    }
+
+    const result = db.prepare(`
+      INSERT INTO products (reference, name, category, brand, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, '待处理', datetime('now'), datetime('now'))
+    `).run(reference.trim(), name || '', category || '', brand || '');
+
+    res.json({
+      success: true,
+      message: `商品 ${reference} 创建成功`,
+      data: { id: result.lastInsertRowid, reference: reference.trim() },
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // 更新商品字段
 router.patch('/:reference', (req: Request, res: Response) => {
   try {
@@ -209,7 +284,7 @@ router.patch('/:reference', (req: Request, res: Response) => {
     }
 
     // 更新主表字段
-    const allowedFields = ['name', 'category', 'brand', 'model', 'selling_points', 'product_intro', 'status', 'upload_status', 'prestashop_id', 'video_url', 'ean13', 'upc', 'mpn'];
+    const allowedFields = ['name', 'category', 'brand', 'model', 'selling_points', 'product_intro', 'status', 'upload_status', 'prestashop_id', 'video_url', 'ean13', 'upc', 'mpn', 'price', 'wholesale_price', 'quantity'];
     const productUpdates: Record<string, any> = {};
     for (const field of allowedFields) {
       if (updates[field] !== undefined) {
@@ -405,10 +480,26 @@ router.get('/meta/statistics', (req: Request, res: Response) => {
     const total = (db.prepare('SELECT COUNT(*) as count FROM products').get() as any).count;
     const statusStats = db.prepare(
       'SELECT status, COUNT(*) as count FROM products GROUP BY status ORDER BY count DESC'
-    ).all();
+    ).all() as Array<{ status: string; count: number }>;
+
+    // 动态计算"已上传图片"数量：有图片但无西语文案（匹配动态状态逻辑）
+    const hasImageNoContent = (db.prepare(`
+      SELECT COUNT(*) as count FROM products p
+      WHERE (p.status IS NULL OR p.status != '已下架')
+      AND p.id IN (SELECT DISTINCT product_id FROM product_images)
+      AND p.id NOT IN (SELECT product_id FROM product_contents WHERE lang = 'es' AND name IS NOT NULL AND name != '')
+    `).get() as any).count || 0;
+
+    // 合并到 statusStats（如果"已上传图片"已存在则覆盖，否则追加）
+    const existing = statusStats.find((s: any) => s.status === '已上传图片');
+    if (existing) {
+      existing.count = hasImageNoContent;
+    } else {
+      statusStats.push({ status: '已上传图片', count: hasImageNoContent });
+    }
     const uploadStats = db.prepare(
       'SELECT upload_status, COUNT(*) as count FROM products GROUP BY upload_status ORDER BY count DESC'
-    ).all();
+    ).all() as Array<{ upload_status: string; count: number }>;
 
     res.json({
       success: true,

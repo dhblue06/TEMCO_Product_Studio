@@ -5,8 +5,10 @@ interface LeftPanelProps {
   categories: string[];
   statusFilter: string;
   categoryFilter: string;
+  websiteFilter: string;
   onStatusFilter: (status: string) => void;
   onCategoryFilter: (category: string) => void;
+  onWebsiteFilter: (status: string) => void;
 }
 
 // 定义商品状态的显示颜色
@@ -21,17 +23,18 @@ const statusStyles: Record<string, { label: string; className: string }> = {
   '图片ALT待生成': { label: '图片ALT待生成', className: 'pending' },
   'SEO待检查': { label: 'SEO待检查', className: 'pending' },
   'SEO通过': { label: 'SEO通过', className: 'done' },
-  '可导出PrestaShop': { label: '可导出PrestaShop', className: 'done' },
   '已导出': { label: '已导出', className: 'done' },
   '上传失败': { label: '上传失败', className: 'error' },
   '已上传': { label: '已上传', className: 'done' },
+  '已下架': { label: '已下架', className: 'error' },
+  '已上传图片': { label: '已上传图片', className: 'info' },
 };
 
 const statusOrder = [
-  '待处理', '缺图片文件夹', '已匹配图片', '已匹配视频',
+  '待处理', '缺图片文件夹', '已上传图片', '已匹配图片', '已匹配视频',
   '双语文案待生成', '双语文案已生成', '西语文案待审核',
   '图片ALT待生成', 'SEO待检查', 'SEO通过',
-  '可导出PrestaShop', '已导出', '上传失败', '已上传'
+  '已导出', '上传失败', '已上传', '已下架'
 ];
 
 const LeftPanel: React.FC<LeftPanelProps> = ({
@@ -39,8 +42,10 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
   categories,
   statusFilter,
   categoryFilter,
+  websiteFilter,
   onStatusFilter,
   onCategoryFilter,
+  onWebsiteFilter,
 }) => {
   const statusStats = statistics?.statusStats || [];
   const statusMap: Record<string, number> = {};
@@ -95,6 +100,22 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
             <span>{cat}</span>
           </div>
         ))}
+      </div>
+
+      <div className="filter-group">
+        <h3>网站状态</h3>
+        {['','on','off','conflict'].map((ws) => {
+          const label = ws === '' ? '全部' : ws === 'on' ? '✓ 已在网站' : ws === 'off' ? '未在网站' : '⚠ 冲突';
+          return (
+            <div
+              key={ws}
+              className={`filter-item ${websiteFilter === ws ? 'active' : ''}`}
+              onClick={() => onWebsiteFilter(ws)}
+            >
+              <span>{label}</span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

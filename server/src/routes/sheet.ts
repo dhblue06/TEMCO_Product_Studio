@@ -50,13 +50,14 @@ router.post('/sync', async (req: Request, res: Response) => {
     let updated = 0;
 
     const insertProduct = db.prepare(`
-      INSERT INTO products (reference, prestashop_id, name, category, brand, model, status, sheet_raw_data, updated_at)
+      INSERT INTO products (reference, prestashop_id, name, category, brand, model, quantity, sheet_raw_data, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
       ON CONFLICT(reference) DO UPDATE SET
         name = excluded.name,
         category = excluded.category,
         brand = excluded.brand,
         model = excluded.model,
+        quantity = excluded.quantity,
         sheet_raw_data = excluded.sheet_raw_data,
         updated_at = excluded.updated_at
     `);
@@ -79,7 +80,8 @@ router.post('/sync', async (req: Request, res: Response) => {
 
         const result = insertProduct.run(
           reference, prestashopId, name, category, brand, model,
-          '待处理', JSON.stringify(rawData)
+          parseInt(getField(row, fieldMap, 'stock'), 10) || 0,
+          JSON.stringify(rawData)
         );
 
         if (result.changes > 0) {
@@ -397,11 +399,11 @@ router.post('/sync-csv', (req: Request, res: Response) => {
     let updated = 0;
 
     const insertProduct = db.prepare(`
-      INSERT INTO products (reference, prestashop_id, name, category, brand, model, status, sheet_raw_data, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, '待处理', ?, datetime('now'))
+      INSERT INTO products (reference, prestashop_id, name, category, brand, model, quantity, sheet_raw_data, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
       ON CONFLICT(reference) DO UPDATE SET
         name = excluded.name, category = excluded.category, brand = excluded.brand,
-        model = excluded.model, sheet_raw_data = excluded.sheet_raw_data, updated_at = excluded.updated_at
+        model = excluded.model, quantity = excluded.quantity, sheet_raw_data = excluded.sheet_raw_data, updated_at = excluded.updated_at
     `);
 
     const insertBatch = db.transaction(() => {
@@ -419,6 +421,7 @@ router.post('/sync-csv', (req: Request, res: Response) => {
           getField(row, fieldMap, 'category'),
           getField(row, fieldMap, 'brand') || 'TEMCO',
           getField(row, fieldMap, 'model'),
+          parseInt(getField(row, fieldMap, 'stock'), 10) || 0,
           JSON.stringify(rawData)
         );
 

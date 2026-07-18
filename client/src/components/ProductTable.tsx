@@ -23,10 +23,11 @@ const statusStyles: Record<string, string> = {
   '图片ALT待生成': 'pending',
   'SEO待检查': 'pending',
   'SEO通过': 'done',
-  '可导出PrestaShop': 'done',
   '已导出': 'done',
   '上传失败': 'error',
   '已上传': 'done',
+  '已下架': 'error',
+  '已上传图片': 'info',
 };
 
 const ProductTable: React.FC<ProductTableProps> = ({ products, loading, selectedRef, selectedRefs, onSelect, onToggleSelect, onSelectAll, onDeselectAll }) => {
@@ -69,6 +70,7 @@ const ProductTable: React.FC<ProductTableProps> = ({ products, loading, selected
             <th style={{ width: 70 }}>品牌</th>
             <th style={{ width: 60 }}>价格</th>
             <th style={{ width: 90 }}>状态</th>
+            <th style={{ width: 44 }}>网站</th>
             <th style={{ width: 70 }}>图片</th>
             <th style={{ width: 44 }}>文件夹</th>
             <th style={{ width: 40 }}>视频</th>
@@ -86,7 +88,7 @@ const ProductTable: React.FC<ProductTableProps> = ({ products, loading, selected
                 <input type="checkbox" checked={selectedRefs.has(p.reference)} onChange={() => {}} style={{ cursor: 'pointer' }} />
               </td>
               <td style={{ fontWeight: 500 }}>{p.reference}</td>
-              <td>{p.esName || p.name || '-'}</td>
+              <td>{(p as any).es_name || p.esName || p.name || '-'}</td>
               <td>{p.category || '-'}</td>
               <td>{p.brand || '-'}</td>
               <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--accent)' }}>
@@ -96,6 +98,12 @@ const ProductTable: React.FC<ProductTableProps> = ({ products, loading, selected
                 <span className={`status-badge ${statusStyles[(p as any).dynamicStatus || p.status] || 'default'}`}>
                   {(p as any).dynamicStatus || p.status}
                 </span>
+              </td>
+              <td style={{ textAlign: 'center' }}>
+                {(p as any).website_status === 'on' ? <span style={{color:'var(--success)',fontWeight:700,fontSize:14}} title={'已在网站\nPS ID: ' + ((p as any).website_prestashop_id||'')}>✓</span> :
+                 (p as any).website_status === 'conflict' ? <span style={{color:'var(--warning)',fontSize:14}} title="匹配冲突">⚠</span> :
+                 (p as any).website_status === 'off' ? <span style={{color:'var(--text-muted)',fontSize:12}}>—</span> :
+                 <span style={{color:'var(--text-muted)',fontSize:12}}>—</span>}
               </td>
               <td>
                 <span style={{ color: (p as any).main_image_count > 0 || p.mainImageCount > 0 ? 'var(--success)' : 'var(--warning)' }}>

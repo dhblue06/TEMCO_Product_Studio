@@ -1,4 +1,4 @@
-﻿import { Router, Request, Response } from 'express';
+import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -56,16 +56,24 @@ const upload = multer({
 const router = Router();
 
 const IMAGE_STATUSES = new Set(['ok', 'white_bg', 'scene', 'processed', 'ai_generated']);
+const IMAGE_ROLES = new Set(['main', 'gallery', 'main_product', 'packaging', 'scene1', 'scene2', 'scene3', 'scene4', 'scene5', 'scene6', 'scene7', 'scene8']);
+const IMAGE_SLOTS = new Set(['main_product', 'packaging', 'scene1', 'scene2', 'scene3', 'scene4', 'scene5', 'scene6', 'scene7', 'scene8']);
+
 function getUploadStatus(raw: unknown): string {
   const status = typeof raw === 'string' ? raw : 'ok';
   return IMAGE_STATUSES.has(status) ? status : 'ok';
 }
 
 function getUploadRole(raw: unknown): string | null {
-  if (typeof raw !== 'string' || !raw.trim()) return null;
-  const trimmed = raw.trim();
-  // 接受任何非空字符串作为角色
-  return trimmed;
+  if (typeof raw !== 'string') return null;
+  const role = raw.trim();
+  return IMAGE_ROLES.has(role) ? role : null;
+}
+
+function getImageSlot(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  const slot = raw.trim();
+  return IMAGE_SLOTS.has(slot) ? slot : '';
 }
 
 function deleteLocalUpload(localPath?: string | null): void {
@@ -119,6 +127,7 @@ router.post('/upload/:reference', upload.single('image'), async (req: Request, r
 
     const uploadStatus = getUploadStatus(req.body?.status);
     const requestedRole = getUploadRole(req.body?.role);
+    const imageSlot = getImageSlot(req.body?.image_slot || req.body?.role);
     const role = requestedRole || (newIndex === 1 ? 'main' : 'gallery');
 
     if (role === 'main') {
@@ -127,9 +136,9 @@ router.post('/upload/:reference', upload.single('image'), async (req: Request, r
 
     // 写入数据库
     const result = db.prepare(`
-      INSERT INTO product_images (product_id, original_name, export_name, image_index, role, mime_type, status, local_path)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(product.id, originalName, exportName, newIndex, role, `image/${path.extname(originalName).slice(1)}`, uploadStatus, filePath);
+      INSERT INTO product_images (product_id, original_name, export_name, image_index, role, image_slot, mime_type, status, local_path)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(product.id, originalName, exportName, newIndex, role, imageSlot, `image/${path.extname(originalName).slice(1)}`, uploadStatus, filePath);
 
     res.json({
       success: true,
@@ -140,6 +149,7 @@ router.post('/upload/:reference', upload.single('image'), async (req: Request, r
         exportName,
         index: newIndex,
         role,
+        imageSlot,
         status: uploadStatus,
         localPath: filePath,
       },
@@ -180,17 +190,30 @@ router.post('/upload-batch/:reference', upload.array('images', 10), async (req: 
     const results: any[] = [];
     const uploadStatus = getUploadStatus(req.body?.status);
     const requestedRole = getUploadRole(req.body?.role);
+    const requestedSlot = getImageSlot(req.body?.image_slot || req.body?.role);
+
+    // 如果指定了固定槽位，先删除该角色的旧图片（替换模式）
+    if (requestedSlot) {
+      const existingImages = db.prepare(
+        'SELECT id, local_path FROM product_images WHERE product_id = ? AND image_slot = ?'
+      ).all(product.id, requestedSlot) as any[];
+      for (const oldImg of existingImages) {
+        deleteLocalUpload(oldImg.local_path);
+        db.prepare('DELETE FROM product_images WHERE id = ?').run(oldImg.id);
+      }
+    }
 
     for (const file of files) {
       const exportName = createExportImageName(reference, category, startIndex);
       const role = requestedRole || 'gallery';
+      const imageSlot = requestedSlot;
       if (role === 'main') {
         db.prepare('UPDATE product_images SET role = ? WHERE product_id = ?').run('gallery', product.id);
       }
       const imgResult = db.prepare(`
-        INSERT INTO product_images (product_id, original_name, export_name, image_index, role, mime_type, status, local_path)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(product.id, file.originalname, exportName, startIndex, role, `image/${path.extname(file.originalname).slice(1)}`, uploadStatus, file.path);
+        INSERT INTO product_images (product_id, original_name, export_name, image_index, role, image_slot, mime_type, status, local_path)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(product.id, file.originalname, exportName, startIndex, role, imageSlot, `image/${path.extname(file.originalname).slice(1)}`, uploadStatus, file.path);
 
       results.push({
         id: imgResult.lastInsertRowid,
@@ -198,6 +221,7 @@ router.post('/upload-batch/:reference', upload.array('images', 10), async (req: 
         exportName,
         index: startIndex,
         role,
+        imageSlot,
         status: uploadStatus,
       });
       startIndex++;
@@ -469,7 +493,7 @@ router.patch('/image/:imageId', (req: Request, res: Response) => {
     if (!image) return res.status(404).json({ success: false, error: '图片不存在' });
 
     const updates = req.body || {};
-    const allowedFields = ['original_name', 'export_name', 'alt', 'image_index', 'status', 'role'];
+    const allowedFields = ['original_name', 'export_name', 'alt', 'image_index', 'status', 'role', 'image_slot'];
     const imageUpdates: Record<string, any> = {};
 
     for (const field of allowedFields) {
@@ -478,6 +502,8 @@ router.patch('/image/:imageId', (req: Request, res: Response) => {
         const role = getUploadRole(updates[field]);
         if (!role) continue;
         imageUpdates.role = role;
+      } else if (field === 'image_slot') {
+        imageUpdates.image_slot = getImageSlot(updates[field]);
       } else if (field === 'status') {
         imageUpdates.status = getUploadStatus(updates[field]);
       } else if (field === 'image_index') {
@@ -728,13 +754,170 @@ router.post("/verify-images/:reference", (req: Request, res: Response) => {
     }
 
     // 更新主图状态
-    const mainCount = db.prepare("SELECT COUNT(*) as c FROM product_images WHERE product_id = ? AND role = ?").get(product.id, "main_product") as any;
+    const mainCount = db.prepare("SELECT COUNT(*) as c FROM product_images WHERE product_id = ? AND image_slot = ?").get(product.id, "main_product") as any;
     const imgCount = db.prepare("SELECT COUNT(*) as c FROM product_images WHERE product_id = ?").get(product.id) as any;
 
     res.json({
       success: true,
       message: `验证完成，删除 ${deleted} 条失效记录，保留 ${valid} 条`,
       data: { deleted, valid, remainingImages: imgCount.c, hasMainImage: mainCount.c > 0 },
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/upload/organize-images - 扫描所有产品文件夹，将未匹配图片复制到 _unmatched 子目录
+router.post('/organize-images', (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const customFolder = req.body?.folderPath as string;
+
+    if (customFolder) {
+      // 扫描指定文件夹
+      const folder = customFolder;
+      if (!fs.existsSync(folder)) {
+        return res.status(404).json({ success: false, error: '文件夹不存在: ' + folder });
+      }
+
+      const files = fs.readdirSync(folder)
+        .filter(f => /\.(jpg|jpeg|png|webp|gif)$/i.test(f) && f !== 'thumbs.db');
+
+      if (files.length === 0) {
+        return res.json({ success: true, message: '文件夹中没有图片文件', data: { totalCopied: 0 } });
+      }
+
+      // 获取数据库所有已记录的图片文件名
+      const allDbNames = new Set<string>();
+      const dbImages = db.prepare('SELECT original_name, export_name FROM product_images').all() as any[];
+      for (const img of dbImages) {
+        if (img.original_name) allDbNames.add(img.original_name.toLowerCase());
+        if (img.export_name) allDbNames.add(img.export_name.toLowerCase());
+      }
+
+      const unmatched = files.filter(f => !allDbNames.has(f.toLowerCase()));
+      if (unmatched.length === 0) {
+        return res.json({ success: true, message: '所有图片都已匹配', data: { totalFiles: files.length, totalCopied: 0 } });
+      }
+
+      const unmatchedDir = path.join(folder, '_unmatched');
+      if (!fs.existsSync(unmatchedDir)) fs.mkdirSync(unmatchedDir, { recursive: true });
+
+      let copied = 0;
+      for (const file of unmatched) {
+        const src = path.join(folder, file);
+        const dest = path.join(unmatchedDir, file);
+        try {
+          fs.copyFileSync(src, dest);
+          copied++;
+        } catch { /* 跳过 */ }
+      }
+
+      return res.json({
+        success: true,
+        message: `整理完成：文件夹共 ${files.length} 张图片，其中 ${copied} 张未匹配图片已复制到 _unmatched 子目录`,
+        data: { folder, totalFiles: files.length, unmatchedCount: unmatched.length, totalCopied: copied },
+      });
+    }
+
+    // 原有逻辑：扫描所有产品文件夹
+    const products = db.prepare('SELECT reference FROM products ORDER BY reference').all() as any[];
+    const details: any[] = [];
+    let totalCopied = 0;
+
+    for (const product of products) {
+      const folder = getProductFolder(product.reference);
+      if (!fs.existsSync(folder)) continue;
+
+      const files = fs.readdirSync(folder)
+        .filter(f => /\.(jpg|jpeg|png|webp|gif)$/i.test(f) && f !== 'thumbs.db')
+        .filter(f => !f.startsWith('wb_') && !f.startsWith('scene_'));
+
+      if (files.length === 0) continue;
+
+      // 查询数据库中已有记录的图片文件名
+      const existingNames = (db.prepare(
+        "SELECT original_name, export_name FROM product_images WHERE product_id = (SELECT id FROM products WHERE reference = ?)"
+      ).all(product.reference) as any[]).reduce((acc: Set<string>, img: any) => {
+        acc.add(img.original_name);
+        if (img.export_name) acc.add(img.export_name);
+        return acc;
+      }, new Set<string>());
+
+      const unmatched = files.filter(f => !existingNames.has(f));
+      if (unmatched.length === 0) continue;
+
+      // 创建 _unmatched 子目录并复制文件
+      const unmatchedDir = path.join(folder, '_unmatched');
+      if (!fs.existsSync(unmatchedDir)) fs.mkdirSync(unmatchedDir, { recursive: true });
+
+      let copied = 0;
+      for (const file of unmatched) {
+        const src = path.join(folder, file);
+        const dest = path.join(unmatchedDir, file);
+        try {
+          fs.copyFileSync(src, dest);
+          copied++;
+          totalCopied++;
+        } catch { /* 跳过复制失败的文件 */ }
+      }
+
+      details.push({ reference: product.reference, unmatched, copied, totalFiles: files.length });
+    }
+
+    res.json({
+      success: true,
+      message: `整理完成：共扫描 ${details.length} 个产品文件夹，将 ${totalCopied} 张未匹配图片复制到 _unmatched 子目录`,
+      data: { details, totalFolders: details.length, totalCopied },
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/upload/batch-rename - 批量重命名文件夹中的图片文件
+router.post('/batch-rename', (req: Request, res: Response) => {
+  try {
+    const { folderPath } = req.body || {};
+    const folder = folderPath || 'C:\\Users\\xjm06\\Desktop\\11111';
+
+    if (!fs.existsSync(folder)) {
+      return res.status(404).json({ success: false, error: '文件夹不存在: ' + folder });
+    }
+
+    const files = fs.readdirSync(folder).filter(f => /\.(jpeg|jpg|png|webp|gif)$/i.test(f));
+    let renamed = 0;
+    let errors = 0;
+    const results: any[] = [];
+
+    for (const file of files) {
+      // 匹配模式：.jpg_2K_数字.jpeg → .jpeg
+      const newName = file.replace(/\.jpg_2K_\d+\.jpeg$/i, '.jpeg');
+      if (newName === file) continue; // 不需要改名
+
+      const oldPath = path.join(folder, file);
+      const newPath = path.join(folder, newName);
+
+      if (fs.existsSync(newPath)) {
+        results.push({ old: file, new: newName, status: 'skipped', reason: '目标文件已存在' });
+        errors++;
+        continue;
+      }
+
+      try {
+        fs.renameSync(oldPath, newPath);
+        renamed++;
+        results.push({ old: file, new: newName, status: 'renamed' });
+      } catch (err: any) {
+        errors++;
+        results.push({ old: file, new: newName, status: 'error', reason: err.message });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `重命名完成：成功 ${renamed} 个，失败 ${errors} 个`,
+      data: { folder, total: files.length, renamed, errors, results: results.slice(0, 20) },
     });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
@@ -839,6 +1022,180 @@ router.get('/file/:filename', (req: Request, res: Response) => {
     return res.status(404).json({ success: false, error: '文件不存在' });
   }
   res.sendFile(filePath);
+});
+
+// ========== 扫描文件夹匹配图片 ==========
+function getScanInputDir(): string {
+  try {
+    const db = getDatabase();
+    const row = db.prepare("SELECT value FROM api_settings WHERE key = 'scan_input_path'").get() as any;
+    if (row && row.value) {
+      const customPath = path.isAbsolute(row.value)
+        ? path.resolve(row.value)
+        : path.resolve(__dirname, '../../..', row.value);
+      if (!fs.existsSync(customPath)) fs.mkdirSync(customPath, { recursive: true });
+      return customPath;
+    }
+  } catch {}
+  const defaultPath = path.join(__dirname, '../../data/scan-input');
+  if (!fs.existsSync(defaultPath)) {
+    try { fs.mkdirSync(defaultPath, { recursive: true }); } catch {}
+  }
+  return defaultPath;
+}
+
+function normalizeScanCode(value: string): string {
+  return String(value || '').trim().toUpperCase().replace(/\s+/g, '');
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function hasCodeToken(text: string, code: string): boolean {
+  const normalizedCode = normalizeScanCode(code);
+  if (!normalizedCode) return false;
+  const normalizedText = String(text || '').toUpperCase();
+  const token = escapeRegExp(normalizedCode);
+  return new RegExp('(^|[^A-Z0-9-])' + token + '([^A-Z0-9-]|$)', 'i').test(normalizedText);
+}
+
+function findProductForScannedFile(db: any, extractedRef: string): any {
+  const code = normalizeScanCode(extractedRef);
+  if (!code) return { product: null, matchBy: 'empty' };
+
+  const exact = db.prepare(
+    'SELECT id, reference, name, model, sheet_raw_data FROM products WHERE UPPER(reference) = ? OR UPPER(model) = ? LIMIT 2'
+  ).all(code, code) as any[];
+  if (exact.length === 1) {
+    return { product: exact[0], matchBy: exact[0].reference.toUpperCase() === code ? 'reference' : 'model' };
+  }
+
+  const candidates = db.prepare(
+    'SELECT id, reference, name, model, sheet_raw_data FROM products WHERE UPPER(name) LIKE ? OR UPPER(sheet_raw_data) LIKE ? LIMIT 20'
+  ).all('%' + code + '%', '%' + code + '%') as any[];
+
+  const scored = candidates
+    .map((p) => {
+      let rawText = '';
+      try { rawText = Object.values(JSON.parse(p.sheet_raw_data || '{}')).join(' '); } catch {}
+      const inModel = hasCodeToken(p.model || '', code);
+      const inName = hasCodeToken(p.name || '', code);
+      const inRaw = hasCodeToken(rawText, code);
+      const score = inModel ? 1 : inName ? 2 : inRaw ? 3 : 99;
+      return { product: p, score, matchBy: inModel ? 'model' : inName ? 'name' : inRaw ? 'sheet_raw_data' : 'loose' };
+    })
+    .filter((item) => item.score < 99)
+    .sort((a, b) => a.score - b.score);
+
+  if (scored.length === 1 || (scored.length > 1 && scored[0].score < scored[1].score)) {
+    return scored[0];
+  }
+  return { product: null, matchBy: scored.length > 1 ? 'ambiguous' : 'not_found', candidates: scored.map((s) => s.product.reference) };
+}
+
+// POST /api/upload/scan-folder - 扫描文件夹，按文件名匹配产品，自动加入图片
+router.post('/scan-folder', (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const scanDir = getScanInputDir();
+    const files = fs.readdirSync(scanDir)
+      .filter(f => /\.(jpg|jpeg|png|webp)$/i.test(f) && !f.startsWith('.'));
+    const dryRun = req.query.dryRun === '1' || req.body?.dryRun === true;
+
+    const results: any[] = [];
+    let matched = 0;
+    let notFound = 0;
+    let skipped = 0;
+
+    for (const file of files) {
+      const baseName = path.basename(file).replace(/\.(jpg|jpeg|png|webp)$/i, '').trim();
+      const strippedRef = baseName.replace(/[\s_-]*(?:\([^)]*\)|\[[^\]]*\]|副本|copy|\(\d+\)|_\d+)$/i, '').trim();
+      const refCandidates = Array.from(new Set([baseName, strippedRef].filter(Boolean)));
+      let match: any = { product: null, matchBy: 'not_found' };
+      let ref = refCandidates[0] || '';
+      for (const candidateRef of refCandidates) {
+        const candidateMatch = findProductForScannedFile(db, candidateRef);
+        if (candidateMatch.product) {
+          match = candidateMatch;
+          ref = candidateRef;
+          break;
+        }
+        match = candidateMatch;
+      }
+      const product = match.product;
+
+      if (!product) {
+        notFound++;
+        results.push({ fileName: file, extractedRef: ref, triedRefs: refCandidates, status: 'not_found', matchBy: match.matchBy, candidates: match.candidates || [] });
+        continue;
+      }
+
+      const filePath = path.join(scanDir, file);
+      const productFolder = ensureProductFolder(product.reference);
+      const ext = path.extname(file).toLowerCase();
+      const newFileName = `${uuidv4()}${ext}`;
+      const destPath = path.join(productFolder, newFileName);
+
+      const existingImages = db.prepare(
+        'SELECT * FROM product_images WHERE product_id = ? AND original_name = ?'
+      ).all(product.id, file) as any[];
+
+      if (existingImages.length > 0) {
+        skipped++;
+        results.push({ fileName: file, extractedRef: ref, reference: product.reference, matchBy: match.matchBy, status: 'skipped', reason: '已存在同名图片' });
+        continue;
+      }
+
+      if (!dryRun) fs.copyFileSync(filePath, destPath);
+
+      const oldMain = db.prepare(
+        "SELECT id, local_path FROM product_images WHERE product_id = ? AND image_slot = 'main_product'"
+      ).all(product.id) as any[];
+      for (const old of oldMain) {
+        if (!dryRun) {
+          if (old.local_path && fs.existsSync(old.local_path)) {
+            try { fs.unlinkSync(old.local_path); } catch {}
+          }
+          db.prepare('DELETE FROM product_images WHERE id = ?').run(old.id);
+        }
+      }
+
+      const maxIdx = db.prepare(
+        'SELECT MAX(image_index) as mx FROM product_images WHERE product_id = ?'
+      ).get(product.id) as any;
+      const newIndex = (maxIdx?.mx || 0) + 1;
+
+      if (!dryRun) {
+      db.prepare(`
+        INSERT INTO product_images (product_id, original_name, export_name, image_index, role, image_slot, mime_type, status, local_path)
+        VALUES (?, ?, ?, ?, 'main', 'main_product', ?, 'ok', ?)
+      `).run(product.id, file, file, newIndex, `image/${ext.slice(1)}`, destPath);
+      }
+
+      matched++;
+      results.push({ fileName: file, extractedRef: ref, reference: product.reference, matchBy: match.matchBy, status: 'matched' });
+    }
+
+    const matchedRefs = results.filter(r => r.status === 'matched').map(r => r.reference);
+
+    res.json({
+      success: true,
+      message: `${dryRun ? '扫描预览' : '扫描完成'}：匹配 ${matched} 个，未找到产品 ${notFound} 个，跳过 ${skipped} 个`,
+      data: {
+        total: files.length,
+        matched,
+        notFound,
+        skipped,
+        matchedRefs,
+        scanFolder: scanDir,
+        dryRun,
+        results,
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 export default router;

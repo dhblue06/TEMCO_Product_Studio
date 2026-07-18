@@ -39,11 +39,11 @@ export function validateProduct(ref: string): ValidationResult {
   }
 
   // 4. 西语标题
-  const esName = content?.name || product.name;
+  const esName = content?.name || product.name || product.reference;
   if (!esName) {
     errors.push('西语标题为空');
   } else if (esName.length < 2) {
-    errors.push('西语标题太短');
+    warnings.push('西语标题太短，将使用 Reference 作为默认名称');
   }
 
   // 5. 西语长描述

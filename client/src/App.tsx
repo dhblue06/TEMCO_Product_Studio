@@ -11,6 +11,9 @@ import ImageProcessModal from './components/ImageProcessModal';
 import AiImageModal from './components/AiImageModal';
 import ExportModal from './components/ExportModal';
 import ImageWorkshopModal from './components/ImageWorkshopModal';
+import WebsiteImportModal from './components/WebsiteImportModal';
+import ProductListImportModal from './components/ProductListImportModal';
+import ImageFinderModal from './components/ImageFinderModal';
 import { productsApi } from './services/api';
 import { ProductListItem, Pagination } from './types';
 
@@ -24,6 +27,7 @@ function App() {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [brandFilter, setBrandFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
+  const [websiteFilter, setWebsiteFilter] = useState('');
   const [categories, setCategories] = useState<string[]>([]);
   const [statistics, setStatistics] = useState<any>(null);
   const [page, setPage] = useState(1);
@@ -35,9 +39,15 @@ function App() {
   const [showImageModal, setShowImageModal] = useState(false);
   const [showAiImageModal, setShowAiImageModal] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showNewProductPrompt, setShowNewProductPrompt] = useState(false);
   const [showWorkshopModal, setShowWorkshopModal] = useState(false);
+  const [showWebsiteImportModal, setShowWebsiteImportModal] = useState(false);
+  const [showProductListModal, setShowProductListModal] = useState(false);
+  const [showImageFinder, setShowImageFinder] = useState(false);
   const [refreshDetail, setRefreshDetail] = useState(0);
-  const [detailFlex, setDetailFlex] = useState(0.6); // 右侧面板 flex 比例
+  const [detailFlex, setDetailFlex] = useState(0.6);
+  const [scanMatchedRefs, setScanMatchedRefs] = useState<string[] | null>(null);
+  const [scanProgress, setScanProgress] = useState<{ current: number; total: number; message: string } | null>(null);
 
   const fetchProducts = useCallback(async () => {
     setLoading(true);
@@ -48,6 +58,8 @@ function App() {
         category: categoryFilter || undefined,
         brand: brandFilter || undefined,
         dateFilter: dateFilter || undefined,
+        websiteStatus: websiteFilter || undefined,
+        refs: scanMatchedRefs?.length ? scanMatchedRefs.join(',') : undefined,
         page,
         pageSize: 50,
       });
@@ -60,7 +72,7 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, categoryFilter, brandFilter, dateFilter, page]);
+  }, [search, statusFilter, categoryFilter, brandFilter, dateFilter, websiteFilter, scanMatchedRefs, page]);
 
   const fetchMeta = useCallback(async () => {
     try {
@@ -140,6 +152,97 @@ function App() {
     document.addEventListener("mouseup", onUp);
   };
 
+  const handleScanFolder = async () => {
+    try {
+      setScanProgress({ current: 0, total: 0, message: '正在扫描文件夹...' });
+      const res = await fetch('/api/upload/scan-folder', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        const refs = data.data.matchedRefs || [];
+        setScanMatchedRefs(refs);
+        if (refs.length > 0) {
+          setStatusFilter('');
+          fetchProducts();
+        }
+        // 同步图片到 PrestaShop（逐个进行，实时更新进度）
+        if (refs.length > 0) {
+          let synced = 0, failed = 0;
+          for (let i = 0; i < refs.length; i++) {
+            setScanProgress({ current: i + 1, total: refs.length, message: `正在同步 ${refs[i]} 的图片到网店...` });
+            try {
+              const syncRes = await fetch(`/api/prestashop/sync-images/${encodeURIComponent(refs[i])}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ imageMode: 'append' }),
+              });
+              const syncData = await syncRes.json();
+              if (syncData.success && syncData.successCount > 0) synced++;
+              else failed++;
+            } catch {
+              failed++;
+            }
+          }
+          setScanProgress(null);
+          setScanMatchedRefs(refs);
+          fetchProducts();
+          alert(`${data.message}\n\n匹配 ${data.data.matched} 个产品\n未找到产品 ${data.data.notFound} 个\n跳过 ${data.data.skipped} 个\n\n📤 图片同步结果：成功 ${synced} 个，失败 ${failed} 个`);
+        } else {
+          setScanProgress(null);
+          alert(`${data.message}\n\n匹配 ${data.data.matched} 个产品\n未找到产品 ${data.data.notFound} 个\n跳过 ${data.data.skipped} 个`);
+        }
+      } else {
+        setScanProgress(null);
+        alert('扫描失败: ' + (data.error || '未知错误'));
+      }
+    } catch (err: any) {
+      setScanProgress(null);
+      alert('扫描失败: ' + err.message);
+    }
+  };
+
+  const handleBatchRename = async () => {
+    try {
+      const res = await fetch('/api/upload/batch-rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message + (data.data?.results?.length > 0 ? '\n\n' + data.data.results.slice(0, 10).map((r: any) => `${r.status === 'renamed' ? '✅' : '⏭'} ${r.old} → ${r.new}`).join('\n') : ''));
+      } else {
+        alert('重命名失败: ' + (data.error || '未知错误'));
+      }
+    } catch (err: any) {
+      alert('重命名失败: ' + err.message);
+    }
+  };
+
+  const handleOrganizeImages = async () => {
+    const folderPath = prompt('输入要扫描的文件夹路径（留空则扫描所有产品文件夹）:', 'C:\\Users\\xjm06\\Desktop\\11111');
+    if (folderPath === null) return; // 用户取消
+    try {
+      const res = await fetch('/api/upload/organize-images', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderPath: folderPath.trim() || undefined }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        const details = data.data?.details || [];
+        const detailText = details.length > 0
+          ? '\n' + details.slice(0, 10).map((d: any) => `📂 ${d.reference}: ${d.copied}张`).join('\n')
+          : data.data?.totalCopied > 0 ? `\n共 ${data.data.totalCopied} 张未匹配图片已整理` : '';
+        alert(data.message + detailText);
+      } else {
+        alert('整理失败: ' + (data.error || '未知错误'));
+      }
+    } catch (err: any) {
+      alert('整理失败: ' + err.message);
+    }
+  };
+
+  const handleClearScan = () => {
+    setScanMatchedRefs(null);
+    fetchProducts();
+  };
+
   return (
     <div className="app-layout">
       <TopBar
@@ -151,6 +254,25 @@ function App() {
         onAiImageClick={() => setShowAiImageModal(true)}
         onExportClick={() => setShowExportModal(true)}
         onImageWorkshopClick={() => setShowWorkshopModal(true)}
+        onWebsiteImportClick={() => setShowWebsiteImportModal(true)}
+        onProductListCheckClick={() => setShowProductListModal(true)}
+        onScanFolderClick={handleScanFolder}
+        onOrganizeImagesClick={handleOrganizeImages}
+        onBatchRenameClick={handleBatchRename}
+        onAddProductClick={() => {
+          const ref = prompt('请输入新商品的 Reference:');
+          if (ref && ref.trim()) {
+            fetch('/api/products', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ reference: ref.trim() }),
+            }).then(r => r.json()).then(d => {
+              if (d.success) { fetchProducts(); setRefreshDetail(n => n + 1); alert(`✅ 商品 ${ref} 创建成功`); }
+              else { alert('❌ ' + (d.error || '创建失败')); }
+            }).catch(e => alert('❌ ' + e.message));
+          }
+        }}
+        scanResultCount={scanMatchedRefs?.length}
       />
       <div className="main-area">
         <LeftPanel
@@ -158,8 +280,10 @@ function App() {
           categories={categories}
           statusFilter={statusFilter}
           categoryFilter={categoryFilter}
+          websiteFilter={websiteFilter}
           onStatusFilter={handleStatusFilter}
           onCategoryFilter={handleCategoryFilter}
+          onWebsiteFilter={(ws) => { setWebsiteFilter(ws === websiteFilter ? '' : ws); setPage(1); }}
         />
         <div className="content-area">
           <div className="table-header">
@@ -188,8 +312,9 @@ function App() {
               <option value="已匹配图片">已匹配图片</option>
               <option value="双语文案已生成">双语文案已生成</option>
               <option value="SEO通过">SEO通过</option>
-              <option value="可导出PrestaShop">可导出PrestaShop</option>
               <option value="已上传">已上传</option>
+              <option value="已上传图片">已上传图片</option>
+              <option value="已下架">已下架</option>
             </select>
             <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
               style={{ fontSize: 12, padding: '4px 8px', borderRadius: 4, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }} />
@@ -211,6 +336,34 @@ function App() {
               </button>
             )}
           </div>
+          {scanProgress && (
+            <div style={{ padding: '8px 16px', background: '#f0f9ff', borderBottom: '1px solid var(--accent)', fontSize: 13 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
+                <span style={{ fontWeight: 600, color: 'var(--accent)' }}>⏳ {scanProgress.message}</span>
+                <span style={{ color: 'var(--text-muted)' }}>{scanProgress.current}/{scanProgress.total}</span>
+              </div>
+              {scanProgress.total > 0 && (
+                <div style={{ width: '100%', height: 6, background: 'var(--bg-hover)', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{ width: `${(scanProgress.current / scanProgress.total) * 100}%`, height: '100%', background: 'var(--accent)', borderRadius: 3, transition: 'width 0.3s ease' }} />
+                </div>
+              )}
+            </div>
+          )}
+          {scanMatchedRefs && scanProgress && (
+            <div style={{ padding: '8px 16px', background: 'var(--accent-light)', borderBottom: '1px solid var(--accent)', display: 'flex', alignItems: 'center', gap: 12, fontSize: 13 }}>
+              <span style={{ fontWeight: 600, color: 'var(--accent)' }}>📋 扫描结果</span>
+              <span style={{ color: 'var(--text-secondary)' }}>匹配了 {scanMatchedRefs.length} 个产品，图片已自动同步到网店</span>
+              <button className="btn btn-sm" onClick={handleClearScan} style={{ marginLeft: 'auto' }}>清除筛选</button>
+            </div>
+          )}
+          {scanMatchedRefs && !scanProgress && (
+            <div style={{ padding: '8px 16px', background: '#fef3c7', borderBottom: '1px solid #f59e0b', display: 'flex', alignItems: 'center', gap: 12, fontSize: 13 }}>
+              <span style={{ fontWeight: 600, color: '#92400e' }}>📋 产品清单检查结果</span>
+              <span style={{ color: '#78350f' }}>当前筛选了 {scanMatchedRefs.length} 个未上架产品</span>
+              <button className="btn btn-sm" onClick={() => setShowImageFinder(true)}>🔍 按型号查找图片</button>
+              <button className="btn btn-sm" onClick={handleClearScan} style={{ marginLeft: 'auto' }}>清除筛选</button>
+            </div>
+          )}
           <ProductTable
             products={products}
             loading={loading}
@@ -319,6 +472,40 @@ function App() {
         <ExportModal
           onClose={() => {
             setShowExportModal(false);
+          }}
+        />
+      )}
+
+      {showImageFinder && scanMatchedRefs && (
+        <ImageFinderModal
+          refs={scanMatchedRefs}
+          onClose={() => setShowImageFinder(false)}
+        />
+      )}
+
+      {showProductListModal && (
+        <ProductListImportModal
+          onClose={() => setShowProductListModal(false)}
+          onImported={(refs) => {
+            setShowProductListModal(false);
+            if (refs.length > 0) {
+              setScanMatchedRefs(refs);
+            }
+          }}
+        />
+      )}
+
+      {showWebsiteImportModal && (
+        <WebsiteImportModal
+          onClose={() => {
+            setShowWebsiteImportModal(false);
+            fetchProducts();
+            setRefreshDetail(n => n + 1);
+          }}
+          onImported={() => {
+            setShowWebsiteImportModal(false);
+            fetchProducts();
+            setRefreshDetail(n => n + 1);
           }}
         />
       )}
