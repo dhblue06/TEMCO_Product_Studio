@@ -98,6 +98,25 @@ export class PrestaShopClient {
   }
 
   /**
+   * 删除资源
+   */
+  async deleteResource(resource: string, id: number): Promise<boolean> {
+    try {
+      const url = new URL(`${this.getBaseUrl()}/${resource}/${id}`);
+      url.searchParams.set('ws_key', this.config.apiKey);
+      const response = await fetch(url.toString(), { method: 'DELETE', redirect: 'follow' });
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(text.substring(0, 200).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() || `HTTP ${response.status}`);
+      }
+      return true;
+    } catch (e: any) {
+      if (e.message && e.message.startsWith('HTTP') === false) throw e;
+      throw new Error(`PrestaShop API 删除失败: ${e.message}`);
+    }
+  }
+
+  /**
    * GET 原始 XML 文本（不解析）
    */
   async getRawXml(resource: string): Promise<string | null> {
@@ -368,13 +387,21 @@ export class PrestaShopClient {
    */
   async getCategories(): Promise<any[]> {
     const data = await this.get<any>('categories', { display: 'full' });
-    return this.asArray(data?.categories?.category).map((c: any) => ({
-      id: c.id || '',
-      idParent: c.id_parent || '',
-      active: c.active || '',
-      name: c.name || '',
-      linkRewrite: c.link_rewrite || '',
-    }));
+    return this.asArray(data?.categories?.category).map((c: any) => {
+      // PrestaShop id_parent 可能带有 xlink:href 属性，解析器将其包装为 {#text: 36, @_xlink:href: "..."}
+      const extract = (v: any): string => {
+        if (v === null || v === undefined) return '';
+        if (typeof v === 'object') return String(v['#text'] ?? v.id ?? '');
+        return String(v);
+      };
+      return {
+        id: extract(c.id),
+        idParent: extract(c.id_parent),
+        active: extract(c.active),
+        name: c.name || '',
+        linkRewrite: c.link_rewrite || '',
+      };
+    });
   }
 
   /**

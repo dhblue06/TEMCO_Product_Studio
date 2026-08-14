@@ -4,6 +4,9 @@ import { PrestaShopClient } from '../services/prestashop/prestashopClient';
 import { validateProduct } from '../services/prestashop/prestashopValidator';
 import { syncProductByRef, SyncResult } from '../services/prestashop/productSyncService';
 import { syncSingleImage, syncImagesByProductRef } from '../services/prestashop/imageSyncService';
+import {
+  fetchCombinations, fetchOptionValues, createCombination, updateCombination, deleteCombination, checkPermissions,
+} from '../services/prestashop/combinationService';
 
 const router = Router();
 
@@ -356,6 +359,75 @@ router.get('/check-alt/:ref', async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ===== 变体（组合）管理 =====
+
+// 读取网站现有变体
+router.get('/combinations/:productId', async (req: Request, res: Response) => {
+  try {
+    const productId = parseInt(req.params.productId, 10);
+    if (!productId) return res.status(400).json({ success: false, error: '产品 ID 无效' });
+    const combinations = await fetchCombinations(productId);
+    res.json({ success: true, data: combinations });
+  } catch (e: any) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+// 读取网站属性值（默认全量；?scope=color 仅颜色组）
+router.get('/option-values', async (req: Request, res: Response) => {
+  try {
+    const scope = req.query.scope === 'color' ? 'color' as const : undefined;
+    const values = await fetchOptionValues(scope);
+    res.json({ success: true, data: values });
+  } catch (e: any) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+// 检测变体相关资源权限
+router.get('/permission-check', async (req: Request, res: Response) => {
+  try {
+    const result = await checkPermissions();
+    res.json({ success: true, data: result });
+  } catch (e: any) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+// 创建变体
+router.post('/combinations/:productId', async (req: Request, res: Response) => {
+  try {
+    const productId = parseInt(req.params.productId, 10);
+    const id = await createCombination(productId, req.body || {});
+    res.json({ success: true, data: { id }, message: `变体创建成功（ID ${id}）` });
+  } catch (e: any) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+// 更新变体
+router.put('/combinations/:id', async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const productId = req.body?.productId ? parseInt(req.body.productId, 10) : undefined;
+    await updateCombination(id, req.body || {}, productId);
+    res.json({ success: true, message: '变体已更新' });
+  } catch (e: any) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+// 删除变体
+router.delete('/combinations/:id', async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    await deleteCombination(id);
+    res.json({ success: true, message: '变体已删除' });
+  } catch (e: any) {
+    res.status(400).json({ success: false, error: e.message });
   }
 });
 

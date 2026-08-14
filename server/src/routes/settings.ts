@@ -12,8 +12,18 @@ const ALLOWED_SETTINGS = new Set([
   'prestashop_default_lang_id', 'prestashop_spanish_lang_id', 'prestashop_chinese_lang_id',
   'prestashop_default_category_id', 'prestashop_default_manufacturer_id', 'prestashop_default_shop_id',
   'prestashop_video_mode', 'prestashop_image_sync_mode', 'prestashop_batch_limit',
+  'category_image_upload_enabled', 'category_image_api_path', 'category_image_method_override',
+  'category_image_concurrency', 'category_image_timeout_seconds', 'category_image_retry_limit',
+  'category_image_jpeg_quality', 'category_image_max_size', 'category_image_dir',
+  'category_upload_batch_limit', 'category_image_max_file_size_mb',
+  'ftp_host', 'ftp_port', 'ftp_username', 'ftp_password', 'ftp_category_image_dir',
   'batch_copy_limit', 'batch_image_limit', 'require_review_before_export',
   'scan_input_path',
+  'mobile_capture_enabled', 'mobile_capture_pin', 'mobile_capture_dir', 'mobile_capture_max_file_mb',
+  'mobile_capture_max_images_per_product', 'mobile_capture_jpeg_quality', 'mobile_capture_max_dimension',
+  'mobile_capture_allow_audio', 'mobile_capture_audio_max_seconds', 'mobile_capture_duplicate_check',
+  'mobile_capture_require_photo', 'mobile_capture_require_color_for_single',
+  'mobile_capture_auto_push_mapping', 'mobile_capture_retention_days', 'mobile_capture_offline_enabled',
 ]);
 
 const SENSITIVE_KEYS = new Set([

@@ -17,6 +17,12 @@ import uploadRouter from './routes/upload';
 import prestashopRouter from './routes/prestashop';
 import websiteImportRouter from './routes/websiteImport';
 import productListImportRouter from './routes/productListImport';
+import categoriesRouter from './routes/categories';
+import productImagesRouter from './routes/productImages';
+import mobileCaptureRouter from './routes/mobileCapture';
+import { maybeSyncPhoneModelCatalog } from './services/mobileCapture/phoneModelService';
+import { inventoryRouter } from './routes/inventory';
+import cajaCheckRouter from './routes/cajaCheck';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -44,6 +50,11 @@ app.use('/api/prestashop', prestashopRouter);
 app.use('/api/website-import', websiteImportRouter);
 app.use('/api/product-lookup', websiteImportRouter);
 app.use('/api/product-list-import', productListImportRouter);
+app.use('/api/categories', categoriesRouter);
+app.use('/api/product-images', productImagesRouter);
+app.use('/api/mobile-capture', mobileCaptureRouter);
+app.use('/api/inventory', inventoryRouter);
+app.use('/api/caja-check', cajaCheckRouter);
 
 // 根路径提示
 app.get('/', (req, res) => {
@@ -94,6 +105,13 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 app.listen(PORT, () => {
   console.log(`🚀 TEMCO Product Studio Server running on http://localhost:${PORT}`);
   console.log(`📦 API: http://localhost:${PORT}/api`);
+  // 启动时自动同步网站手机型号（手机壳点货目录），失败不阻塞服务
+  maybeSyncPhoneModelCatalog().then(r => {
+    if (r) console.log(`📱 手机型号目录已同步网站：新增/更新 ${r.added}，移除 ${r.removed}，总计 ${r.total}`);
+    else console.log('📱 手机型号目录无需同步（10 分钟内已同步过）');
+  }).catch(e => {
+    console.warn(`📱 手机型号目录同步失败（使用现有目录）: ${e.message}`);
+  });
 });
 
 export default app;

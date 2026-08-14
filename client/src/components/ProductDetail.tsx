@@ -4,6 +4,7 @@ import { Product } from '../types';
 import ImageViewerModal from './ImageViewerModal';
 import EditableSelect from './EditableSelect';
 import { prestashopApi } from '../services/api';
+import VariantEditPanel from './mobileCapture/VariantEditPanel';
 
 interface ProductDetailProps {
   reference: string | null;
@@ -44,6 +45,7 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ reference, refreshKey, on
   const [validatingPS, setValidatingPS] = useState(false);
   const [syncingPS, setSyncingPS] = useState(false);
   const [psSyncMessage, setPsSyncMessage] = useState('');
+  const [showVariantEdit, setShowVariantEdit] = useState(false);
   const [uploadKind, setUploadKind] = useState<UploadKind>('ok');
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set(['white_product', 'white_packaging', 'scene1', 'scene2', 'scene3']));
   const [generating, setGenerating] = useState(false);
@@ -680,6 +682,21 @@ const getSlots = (count: number) => {
               <div style={{ marginTop: 4, fontSize: 11, color: psSyncMessage.includes('❌') ? 'var(--error)' : psSyncMessage.includes('✅') ? 'var(--success)' : 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
                 {psSyncMessage}
               </div>
+            )}
+          </div>
+
+          {/* 网站变体（组合）编辑 */}
+          <div className="detail-section" style={{ marginTop: 8, padding: 8, border: '1px dashed var(--accent)', borderRadius: 6 }}>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => setShowVariantEdit(s => !s)}
+              style={{ marginBottom: showVariantEdit ? 8 : 0, background: showVariantEdit ? 'var(--accent)' : undefined, color: showVariantEdit ? '#fff' : undefined }}
+            >
+              {showVariantEdit ? '收起变体编辑' : '🧬 编辑网站变体'}
+            </button>
+            {showVariantEdit && (
+              <VariantEditPanel prestashopProductId={product.prestashop_id ? Number(product.prestashop_id) || null : null} />
             )}
           </div>
         </div>

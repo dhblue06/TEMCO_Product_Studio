@@ -1,857 +1,483 @@
 # TEMCO Product Studio 开发文档
 
+> 版本：v1.3  
+> 更新日期：2026-07-23  
+> v1.1 新增：分类图片管理  
+> v1.2 新增：封面 POST → ps_method=PUT 覆盖、curlRunner(spawn)、FTP 缩略图直传  
+> v1.3 新增：产品图片扫描、型号/序列号匹配、批量上传
+
+---
+
 ## 1. 项目定位
 
-开发一个本地运行的 TEMCO 商品素材与内容管理平台，用于批量管理 PrestaShop 商品的图片、视频、双语文案、SEO 字段、图片 ALT、审核状态和导出数据。
+TEMCO Product Studio 是一个本地运行的轻量 PIM + DAM + AI 内容管理平台，用于批量管理 TEMCO 在 PrestaShop 上的商品及分类资料。
 
-当前 TEMCO 已有 9000 多个商品导入 PrestaShop，但大量商品缺图片和说明。平台目标不是替代 PrestaShop，而是作为 PrestaShop 前置的本地 PIM + DAM + AI 内容生成工具。
-
-核心链路：
+核心能力：
 
 ```text
-Google Sheet 商品库
--> Google Drive 图片/视频素材
--> 本地匹配与管理
--> AI 生成中西双语内容
--> 图片处理与 ALT
--> 人工审核
--> 导出 PrestaShop CSV
--> 后期 PrestaShop API 上传
+Google Sheet 商品库 → 本地管理
+Google Drive 素材 → 本地匹配
+AI 中西双语内容 → 人工审核
+PrestaShop CSV 导出
+PrestaShop API 上传（商品 + 分类图片）
 ```
 
-## 2. 参考开源项目的借鉴点
+v1.1 新增：PrestaShop 分类数据同步、分类图片匹配、批量上传、层级浏览。
 
-不要直接使用 Akeneo、Pimcore 这类完整企业系统，它们太重。应借鉴它们的设计思想，开发 TEMCO 专用轻量工具。
+---
 
-| 项目 | 借鉴点 | 在本项目中的实现 |
+## 2. 技术栈
+
+| 层 | 技术 |
+|---|---|
+| 前端 | React 18 + Vite 5 + TypeScript |
+| 后端 | Node.js 22 + Express + TypeScript |
+| 数据库 | SQLite (better-sqlite3 + WAL 模式) |
+| 图片处理 | sharp |
+| PrestaShop | Webservice API (XML) + curl |
+| AI | DeepSeek / OpenAI-compatible |
+
+启动方式：`start.bat`（后端 tsx + 前端 vite）
+
+---
+
+## 3. 核心模块
+
+### 3.1 商品管理模块
+
+- Google Sheet CSV 同步（公开 CSV）
+- 商品列表（搜索、状态筛选、分类筛选、品牌筛选、日期筛选）
+- 商品详情编辑（中/西双语文案、图片、视频、SEO）
+- 批量操作：状态变更、文案生成、图片处理、导出、删除
+
+### 3.2 商品图片/视频模块
+
+- Google Drive 文件夹扫描匹配
+- 按 `Images/商品编号/商品编号_N.jpg` 规则匹配
+- 本地文件夹直接扫描上传
+- AI 图片生成（默认关闭）
+
+### 3.3 双语文案模块
+
+- DeepSeek / OpenAI API 生成中西双语文案
+- 无 Key 时模板兜底
+- 单商品 / 批量生成
+
+### 3.4 PrestaShop 商品同步
+
+- 网站商品 CSV 导入 + 匹配
+- 产品清单 xlsx 导入 + 核对
+- 商品同步：文案、SEO、分类、品牌、图片、视频、价格、库存
+- 图片同步到 PrestaShop（curl 方式上传）
+
+### 3.5 PrestaShop 分类图片管理（v1.1 新增）
+
+- 分类数据导入/同步
+- 本地分类图片扫描
+- 三级自动匹配（精确 → 别名 → 令牌）
+- 人工映射确认/拒绝/批量确认
+- 父分类筛选 + 层级路径显示
+- 封面 + 缩略图双路上传
+- Dry Run 预检 + 批量上传 + 失败重试 + 日志导出
+
+---
+
+## 4. 分类图片管理详细设计
+
+### 4.1 数据流
+
+```text
+PrestaShop API / CSV
+        ↓
+本地 categories 表
+        ↓
+扫描本地目录 → category_images 表
+        ↓
+自动匹配 → category_image_mappings 表
+        ↓
+人工确认 → 已确认映射
+        ↓
+Dry Run 预检
+        ↓
+curl 上传 → PrestaShop
+        ↓
+上传日志 + 重试
+```
+
+### 4.2 数据库表
+
+**categories** — 分类主表
+
+| 字段 | 类型 | 说明 |
 |---|---|---|
-| Akeneo PIM | 商品属性、多语言、渠道导出、完整度检查 | 商品字段结构、中文/西语双语内容、PrestaShop 导出检查 |
-| Pimcore | PIM + DAM，商品与素材统一关联 | 商品对象关联 Drive 图片、视频、处理后图片 |
-| AtroPIM / AtroCore | 导入导出、集成、状态流 | Sheet 导入、Drive 同步、PrestaShop CSV/API 预留 |
-| NocoDB | 表格化管理体验 | 商品列表、筛选、批量操作、人工审核 |
-| Baserow | 低代码表格和工作流体验 | 状态列、审核视图、批量生成任务 |
+| id | INTEGER PK | 本地 ID |
+| prestashop_category_id | INTEGER UNIQUE | PrestaShop 分类 ID |
+| parent_id | INTEGER | 父分类的 prestashop_category_id |
+| name | TEXT | 分类名称 |
+| normalized_name | TEXT | 标准化名称（小写无重音） |
+| full_path | TEXT | 完整层级路径（如 Accesorios > XIAOMI > Mi 15） |
 
-## 3. 推荐技术栈
+**category_images** — 分类图片资产
 
-```text
-前端：React + Vite
-后端：Node.js + Express
-数据库：SQLite
-图片处理：sharp
-表格导出：CSV / Excel
-Google：Google Sheet CSV + Google Drive API
-文案 AI：DeepSeek API 优先，OpenAI-compatible Provider 预留
-图片 AI：默认关闭，真实图优先；可预留 OpenAI Images / 即梦 / 通义万相等
-PrestaShop：第一版 CSV，后期 Webservice API
-```
+| 字段 | 说明 |
+|---|---|
+| local_path | 绝对路径 |
+| filename | 原始文件名 |
+| normalized_filename | 标准化文件名 |
+| sha256 | 文件哈希 |
+| ignored | 忽略标记 |
 
-## 4. 当前素材结构
+**category_image_mappings** — 分类-图片映射
 
-Google Drive：
+| 字段 | 说明 |
+|---|---|
+| category_id / category_image_id | 关联 |
+| match_type | manual / exact / alias / fuzzy |
+| confidence | 0-1 置信度 |
+| status | suggested / confirmed / rejected / ignored / conflict |
 
-```text
-TEMCO/
-  Images/
-    BPT1753-N/
-      BPT1753-N_1.jpg
-      BPT1753-N_2.jpg
-      BPT1753-N_3.jpg
-      BPT1753-N_4.jpg
-      BPT1753-N_5.jpg
-      BPT1753-N_6.jpg
-      BPT1753-N_7.jpg
-  Videos/
-    BPT1751-N.mp4
-    LS23-M.mp4
-    LY01.mp4
-    PMH120-A.mp4
-```
+**category_image_upload_jobs** — 上传任务
 
-Google Sheet：
+| 字段 | 说明 |
+|---|---|
+| batch_id | 批次 ID（格式：CATIMG-日期-UUID） |
+| status | queued / processing / success / failed / cancelled |
+| attempt_count | 重试次数 |
+| http_status | PrestaShop 返回的 HTTP 状态码 |
+| error_message | 错误详情 |
 
-```text
-https://docs.google.com/spreadsheets/d/10C954V-_NJU7dCO9M7Ts1pLudCk8F8BrhCXcsRqT12M/edit?gid=0#gid=0
-```
+### 4.3 文件名标准化规则
 
-## 5. 核心模块
-
-### 5.1 商品管理模块
-
-功能：
-
-```text
-同步 Google Sheet 商品数据
-显示商品列表
-搜索 reference / SKU / 名称 / 分类 / 型号
-查看商品详情
-编辑商品内容
-保存本地修改
-批量修改状态
-批量生成文案
-批量导出
-```
-
-表格体验参考 NocoDB/Baserow：
-
-```text
-左侧筛选
-中间商品表格
-右侧详情面板
-支持状态列、分类列、素材状态列、SEO 状态列
-```
-
-商品状态：
-
-```text
-待处理
-缺图片文件夹
-已匹配图片
-已匹配视频
-双语文案待生成
-双语文案已生成
-西语文案待审核
-图片ALT待生成
-SEO待检查
-SEO通过
-可导出PrestaShop
-已导出
-上传失败
-已上传
-```
-
-### 5.2 Google Sheet 同步模块
-
-第一版支持公开 CSV 读取：
-
-```text
-https://docs.google.com/spreadsheets/d/{spreadsheetId}/export?format=csv&gid={gid}
-```
-
-推荐 Sheet 字段：
-
-```text
-reference
-prestashop_id
-name_es
-category
-brand
-model
-image_folder
-main_image
-video_file
-description_short_es
-description_es
-seo_title_es
-seo_description_es
-status
-upload_status
-notes
-```
-
-同步逻辑：
-
-```text
-解析 Sheet URL
-读取 CSV
-映射字段
-用 reference 建立商品索引
-写入 SQLite
-保留原始 row 数据，方便排错
-```
-
-### 5.3 Google Drive 图片同步模块
-
-图片路径规则：
-
-```text
-TEMCO/Images/商品编号/商品编号_序号.jpg
+```ts
+function normalizeCategoryImageName(value: string): string {
+  return value
+    .normalize('NFD')                           // 分解重音字符
+    .replace(/[\u0300-\u036f]/g, '')            // 去除重音
+    .toLowerCase()
+    .replace(/^imgi[_-]\d+[_-]/, '')            // 去除 imgi_数字_ 前缀
+    .replace(/\.(webp|png|jpe?g)$/i, '')        // 去除扩展名
+    .replace(/[_/\\-]+/g, ' ')                  // 分隔符统一为空格
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 ```
 
 示例：
 
-```text
-Images/BPT1753-N/BPT1753-N_1.jpg
-Images/BPT1753-N/BPT1753-N_2.jpg
-```
-
-规则：
-
-```text
-Images 下一级文件夹名 = 商品 reference
-_1 = 主图
-_2、_3、_4 = 附图
-```
-
-排序函数：
-
-```js
-function getImageIndex(filename) {
-  const match = filename.match(/_(\d+)\.(jpg|jpeg|png|webp)$/i);
-  return match ? Number(match[1]) : 9999;
-}
-```
-
-异常状态：
-
-| 情况 | 状态 |
+| 原始 | 标准化 |
 |---|---|
-| 商品有编号但 Drive 无文件夹 | 缺图片文件夹 |
-| Drive 有文件夹但商品表无商品 | 云盘孤立素材 |
-| 有图片但没有 `_1` | 缺标准主图 |
-| 文件名不符合 `商品编号_数字.jpg` | 命名不规范 |
-| 两个 `_1` | 重复主图 |
-| 非 jpg/png/webp | 格式需转换 |
+| `imgi_185_mi-15-ultra.webp` | `mi 15 ultra` |
+| `Xiaomi Mi 15 Ultra` | `xiaomi mi 15 ultra` |
+| `imgi_183_xiaomi-15t.webp` | `xiaomi 15t` |
 
-### 5.4 Google Drive 视频同步模块
+### 4.4 匹配算法（三级）
 
-视频路径规则：
+**第一层：人工映射**
+用户手动指定的映射，优先级最高，不会被自动匹配覆盖。
 
-```text
-TEMCO/Videos/商品编号.mp4
-```
+**第二层：精确匹配**
+`normalize(分类名) === normalize(图片名)` → 状态 `suggested`，置信度 1.0。
 
-匹配规则：
+**第三层：令牌子集匹配**
+图片名的所有单词都在分类名中出现（或反过来）→ 状态 `suggested`，置信度 0.85。
 
 ```text
-文件名去掉 .mp4 后 = reference
+mi 15 ultra ⊆ xiaomi mi 15 ultra → 匹配
+xiaomi 14 ultra ⊆ xiaomi mi 14 ultra → 匹配
+xiaomi 15t ⊆ xiaomi mi 15t → 匹配
 ```
 
-用途：
+**冲突检测：**
+- 一个分类匹配多张图片 → 状态 `conflict`
+- 一张图片匹配多个分类 → 状态 `conflict`
+- 确认一条时自动拒绝同分类的其他冲突
 
-```text
-本地预览
-生成视频脚本
-生成 WhatsApp 推广文案
-后期可给商品页或社媒使用
-```
+### 4.5 图片预处理
 
-## 6. 本地数据结构
-
-```json
-{
-  "reference": "BPT1753-N",
-  "prestashopId": "12345",
-  "name": "商品原始名称",
-  "category": "手机配件",
-  "brand": "TEMCO",
-  "model": "",
-  "imageFolder": {
-    "driveId": "folder_file_id",
-    "name": "BPT1753-N",
-    "webViewLink": "https://drive.google.com/..."
-  },
-  "images": [
-    {
-      "driveId": "image_file_id_1",
-      "originalName": "BPT1753-N_1.jpg",
-      "exportName": "bpt1753-n-accesorio-movil-temco-1.jpg",
-      "index": 1,
-      "role": "main",
-      "mimeType": "image/jpeg",
-      "webViewLink": "https://drive.google.com/...",
-      "thumbnailLink": "https://drive.google.com/...",
-      "alt": "BPT1753-N accesorio móvil TEMCO",
-      "status": "ok"
-    }
-  ],
-  "videoFile": {
-    "driveId": "video_file_id",
-    "name": "BPT1753-N.mp4",
-    "webViewLink": "https://drive.google.com/..."
-  },
-  "content": {
-    "es": {
-      "name": "",
-      "descriptionShort": "",
-      "description": "",
-      "seoTitle": "",
-      "seoDescription": "",
-      "friendlyUrl": "",
-      "imageAlt": "",
-      "galleryImageAlts": [],
-      "whatsappCopy": "",
-      "videoScript": ""
-    },
-    "zh": {
-      "name": "",
-      "descriptionShort": "",
-      "description": "",
-      "seoTitle": "",
-      "seoDescription": "",
-      "imageAlt": "",
-      "galleryImageAlts": [],
-      "whatsappCopy": "",
-      "videoScript": ""
-    }
-  },
-  "status": "待处理",
-  "uploadStatus": "未上传",
-  "updatedAt": "2026-06-26T00:00:00.000Z"
-}
-```
-
-## 7. 双语文案规则
-
-必须生成中文和西班牙语两套内容。
-
-```text
-西班牙语：正式上传 PrestaShop 使用
-中文：本地审核、理解、对照，不上传网站
-```
-
-AI 输出：
-
-```json
-{
-  "es": {
-    "name": "",
-    "descriptionShort": "",
-    "description": "",
-    "seoTitle": "",
-    "seoDescription": "",
-    "friendlyUrl": "",
-    "imageAlt": "",
-    "galleryImageAlts": [],
-    "whatsappCopy": "",
-    "videoScript": ""
-  },
-  "zh": {
-    "name": "",
-    "descriptionShort": "",
-    "description": "",
-    "seoTitle": "",
-    "seoDescription": "",
-    "imageAlt": "",
-    "galleryImageAlts": [],
-    "whatsappCopy": "",
-    "videoScript": ""
-  }
-}
-```
-
-PrestaShop 导出只使用 `content.es.*`。中文只进入本地审核 CSV。
-
-## 8. PrestaShop 字段适配
-
-| 本地字段 | PrestaShop 字段 |
-|---|---|
-| `prestashopId` | `id_product` |
-| `reference` | `reference` |
-| `content.es.name` | `name` |
-| `content.es.descriptionShort` | `description_short` |
-| `content.es.description` | `description` |
-| `content.es.seoTitle` | `meta_title` |
-| `content.es.seoDescription` | `meta_description` |
-| `content.es.friendlyUrl` | `link_rewrite` |
-| `images[].alt` | image legend / alt |
-
-第一版只导出 CSV，不直接写线上。
-
-## 9. SEO 规则
-
-短描述 `description_short`：
-
-```text
-西班牙语
-1-2 句话
-建议 300 字符以内
-不写价格、库存、虚假认证
-```
-
-长描述 `description` 必须是安全 HTML：
-
-```html
-<p><strong>BPT1753-N</strong> es un accesorio móvil pensado para tiendas, distribuidores y venta profesional.</p>
-<ul>
-  <li>Referencia: BPT1753-N</li>
-  <li>Categoría: accesorios móviles</li>
-  <li>Uso recomendado: venta en tienda y reposición profesional</li>
-  <li>Consulta disponibilidad, colores y cantidades con el equipo TEMCO.</li>
-</ul>
-```
-
-禁止：
-
-```text
-script
-iframe
-价格
-库存数量
-虚假认证
-虚构兼容型号
-夸张承诺
-```
-
-SEO 标题 `meta_title`：
-
-```text
-西语
-建议 50-60 字符
-包含 reference 或核心品类
-可包含 TEMCO
-不堆关键词
-```
-
-SEO 描述 `meta_description`：
-
-```text
-西语
-建议 120-155 字符
-说明商品用途和 TEMCO 咨询场景
-不写价格和库存
-```
-
-友好 URL `link_rewrite`：
-
-```js
-function createFriendlyUrl(text) {
-  return text
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 120);
-}
-```
-
-## 10. 图片 ALT 与 SEO 文件名
-
-每张图片必须生成 ALT / legend。
-
-主图：
-
-```text
-BPT1753-N accesorio móvil TEMCO
-```
-
-附图：
-
-```text
-BPT1753-N detalle del producto TEMCO
-BPT1753-N vista adicional del accesorio TEMCO
-BPT1753-N presentación del producto TEMCO
-```
-
-规则：
-
-```text
-包含商品编号
-包含品类或商品名
-不超过约 100 字符
-每张图不要完全一样
-不堆关键词
-不写图片中看不到的属性
-```
-
-原始图片名：
-
-```text
-BPT1753-N_1.jpg
-```
-
-导出图片名：
-
-```text
-bpt1753-n-accesorio-movil-temco-1.jpg
-```
-
-数据库同时保留：
-
-```json
-{
-  "originalName": "BPT1753-N_1.jpg",
-  "exportName": "bpt1753-n-accesorio-movil-temco-1.jpg"
-}
-```
-
-## 11. 图片处理与 AI 图片生成
-
-真实图片优先。对已有 Google Drive 图片：
-
-```text
-下载到本地缓存
-裁切
-白底
-居中
-压缩
-统一 1000x1000 或 1200x1200
-生成 SEO 文件名
-生成 ALT
-```
-
-AI 图片只用于完全无图商品：
-
-```text
-默认关闭
-必须人工启用
-生成后状态 = AI示意图待确认
-不能默认作为真实商品主图上传
-不能有文字、价格、促销标签、水印、虚假包装信息
-```
-
-## 12. API 设置后台
-
-必须有后台 API 设置中心，不能把 Key 写死。
-
-入口：
-
-```text
-设置 -> API 设置
-```
-
-文案 API：
-
-```json
-{
-  "copyProvider": "deepseek",
-  "copyApiBaseUrl": "https://api.deepseek.com",
-  "copyApiKey": "",
-  "copyModel": "deepseek-chat",
-  "copyTemperature": 0.3,
-  "copyMaxTokens": 4000
-}
-```
-
-Provider：
-
-```text
-DeepSeek
-OpenAI
-自定义 OpenAI-compatible API
-本地模板生成
-```
-
-没有 Key 时自动切换模板生成。
-
-图片 API：
-
-```json
-{
-  "imageProvider": "disabled",
-  "imageApiBaseUrl": "",
-  "imageApiKey": "",
-  "imageModel": "",
-  "imageSize": "1024x1024",
-  "imageStyle": "ecommerce_white_background"
-}
-```
-
-Google 设置：
-
-```json
-{
-  "googleSheetUrl": "https://docs.google.com/spreadsheets/d/10C954V-_NJU7dCO9M7Ts1pLudCk8F8BrhCXcsRqT12M/edit?gid=0#gid=0",
-  "googleSheetMode": "public_csv",
-  "googleDriveMode": "api",
-  "googleApiKey": "",
-  "googleAccessToken": "",
-  "googleImagesFolderId": "",
-  "googleVideosFolderId": ""
-}
-```
-
-PrestaShop 设置：
-
-```json
-{
-  "prestashopEnabled": false,
-  "prestashopBaseUrl": "https://www.temco.es",
-  "prestashopApiKey": "",
-  "prestashopLanguageId": "",
-  "prestashopUploadMode": "csv_only"
-}
-```
-
-默认：
-
-```text
-图片生成关闭
-PrestaShop 只导出 CSV
-必须人工审核后才能导出
-```
-
-API Key 需要脱敏显示：
-
-```text
-sk-****abcd
-```
-
-敏感字段不要返回前端明文。
-
-## 13. AI Provider 抽象
-
-不要把 DeepSeek 写死在业务逻辑中。
-
-接口：
+上传前统一处理：
 
 ```ts
-interface CopyGenerator {
-  generateProductContent(input: ProductContentInput): Promise<ProductContentResult>
-}
-
-interface ImageGenerator {
-  generateProductImage(input: ProductImageInput): Promise<ProductImageResult>
-}
+await sharp(inputPath)
+  .rotate()                               // EXIF 方向校正
+  .flatten({ background: '#ffffff' })      // 透明→白底
+  .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
+  .jpeg({ quality: 92, mozjpeg: true })
+  .toBuffer();
 ```
 
-实现：
+### 4.6 上传机制
+
+使用和产品图片一致的方式：
+
+```bash
+curl -s -X POST "https://temcostar.com/api/images/categories/{id}?ws_key=KEY" -F "image=@文件路径"
+```
+
+封面 + 缩略图分别上传到：
+- 封面：`POST /api/images/categories/{id}`
+- 缩略图：`POST /api/images/categories/{id}/thumb`
+
+POST 失败且 PrestaShop 返回 "already exists" 时，自动用 `curl -X PUT` 重试覆盖。
+
+用户可选择只传封面、只传缩略图、或两者都传（默认两者都传）。
+
+### 4.7 操作流程
+
+```
+1. 打开「分类管理」
+2. 导入 CSV 或 🔄 同步 PrestaShop 分类
+3. 父分类下拉筛选 → 勾选目标分类 → ✅ 确认 → 去匹配
+4. 切到「图片库」→ 扫描文件夹 → 🔍 扫描图片
+5. 切到「匹配管理」→ 🔗 匹配选中 (N)
+6. 检查匹配结果 → 单独确认/拒绝 或 全选 → ✅ 批量确认
+7. 切到「上传任务」→ 🚀 批量上传
+8. 勾选封面/缩略图选项 → 确认 → 开始上传
+9. 查看结果 → 🔁 重试失败项 → 📥 导出日志 CSV
+```
+
+---
+
+## 5. 前端页面路由
+
+| 路由/入口 | 组件 | 说明 |
+|---|---|---|
+| `/` | App.tsx + ProductTable + ProductDetail | 商品管理主页 |
+| 设置 → API 设置 | SettingsModal | API Key、PrestaShop 连接等 |
+| 顶栏 → 分类管理 | CategoriesPage | 分类图片管理（4 Tab） |
+| 顶栏 → 同步 Sheet | SheetSyncModal | Google Sheet 同步 |
+| 顶栏 → 素材匹配 | DriveScanModal | Drive 图片/视频匹配 |
+| 顶栏 → 批量文案 | CopyGenerationModal | AI 双语文案 |
+| 顶栏 → 图片工坊 | ImageWorkshopModal | 图片手动分配 |
+| 顶栏 → 图片处理 | ImageProcessModal | 图片裁剪/压缩 |
+| 顶栏 → 批量图片 | AiImageModal | AI 生成图片 |
+| 顶栏 → 导出 CSV | ExportModal | PrestaShop/审核 CSV |
+| 顶栏 → 导入网站商品 | WebsiteImportModal | 网站商品抓取 |
+| 顶栏 → 导入产品清单 | ProductListImportModal | xlsx 清单导入 |
+| 顶栏 → 扫描文件夹 | App.handleScanFolder | 本地文件夹→产品匹配 |
+
+---
+
+## 6. 后端 API 端点
+
+### 6.1 分类管理 `/api/categories`
+
+| 方法 | 端点 | 说明 |
+|---|---|---|
+| POST | `/import-csv` | 导入分类 CSV（multipart file） |
+| POST | `/sync-prestashop` | 从 PrestaShop API 同步分类 |
+| GET | `/` | 分类列表（支持 search/matchStatus/parentId/page） |
+| GET | `/stats` | 统计（总数/已匹配/已确认/冲突/已上传） |
+| GET | `/parents` | 父分类列表（用于筛选下拉） |
+| POST | `/scan-images` | 扫描本地分类图片目录 |
+| GET | `/images` | 图片列表 |
+| POST | `/images/clear` | 清空图片库 |
+| POST | `/images/:id/ignore` | 忽略/恢复图片 |
+
+### 6.2 匹配 `/api/categories/matching`
+
+| 方法 | 端点 | 说明 |
+|---|---|---|
+| POST | `/run` | 执行匹配（可传 categoryIds 只匹配选中） |
+| GET | `/results` | 获取匹配结果 |
+| POST | `/confirm` | 确认映射（自动拒绝同分类其他冲突） |
+| POST | `/reject` | 拒绝映射 |
+| POST | `/manual-map` | 人工指定映射 |
+
+### 6.3 上传 `/api/categories/uploads`
+
+| 方法 | 端点 | 说明 |
+|---|---|---|
+| POST | `/preview` | Dry Run 预检 |
+| POST | `/create` | 创建上传批次 |
+| POST | `/:batchId/start` | 开始上传（传 cover/thumb 参数） |
+| POST | `/:batchId/cancel` | 取消上传 |
+| POST | `/:batchId/retry-failed` | 重试失败项 |
+| GET | `/:batchId` | 批次状态 |
+| GET | `/:batchId/logs` | 导出日志 CSV |
+| GET | `/` | 所有批次列表 |
+
+---
+
+## 7. 设置项
+
+新增分类图片相关设置（Key → 默认值）：
+
+| 设置 Key | 默认值 | 说明 |
+|---|---|---|
+| `category_image_upload_enabled` | `true` | 启用上传功能 |
+| `category_image_dir` | 空 | 分类图片本地目录 |
+| `category_image_concurrency` | `2` | 上传并发数 |
+| `category_image_retry_limit` | `2` | 最大重试次数 |
+| `category_image_timeout_seconds` | `60` | 单次上传超时 |
+| `category_image_jpeg_quality` | `92` | JPEG 压缩质量 |
+| `category_image_max_size` | `1600` | 图片最大尺寸 |
+| `category_image_max_file_size_mb` | `10` | 源文件最大 MB |
+| `category_upload_batch_limit` | `200` | 单批最大分类数 |
+
+---
+
+## 8. 目录结构
 
 ```text
-DeepSeekCopyGenerator
-OpenAICopyGenerator
-TemplateCopyGenerator
-OpenAIImageGenerator
-CustomImageGenerator
-DisabledImageGenerator
+TEMCO-Product-Studio/
+├─ client/src/
+│  ├─ App.tsx                    # 主入口
+│  ├─ pages/
+│  │  └─ CategoriesPage.tsx      # 分类图片管理（4 Tab）
+│  ├─ components/
+│  │  ├─ TopBar.tsx
+│  │  ├─ SettingsModal.tsx       # 含分类图片目录、上传开关
+│  │  └─ ...
+│  ├─ services/
+│  │  └─ api.ts                  # categoriesApi (20+ 方法)
+│  └─ types/
+│     └─ index.ts
+├─ server/src/
+│  ├─ index.ts                   # Express 入口
+│  ├─ database/
+│  │  └─ database.ts             # 含 4 张分类表 + 索引
+│  ├─ routes/
+│  │  ├─ categories.ts           # 19 个端点
+│  │  ├─ prestashop.ts
+│  │  └─ settings.ts
+│  ├─ services/
+│  │  ├─ categoryImage/
+│  │  │  ├─ types.ts
+│  │  │  ├─ categoryImageService.ts     # 扫描/匹配/预处理/DryRun
+│  │  │  └─ categoryImageUploadService.ts  # 上传/批次/日志/curl
+│  │  ├─ prestashop/
+│  │  │  └─ prestashopClient.ts         # getCategories(含extract)
+│  │  └─ imageProcessor.ts
+│  └─ ...
+├─ server/data/
+│  ├─ temco.db
+│  ├─ category-images/           # 默认分类图片目录
+│  └─ uploads/
+├─ start.bat
+└─ stop.bat
 ```
 
-## 14. API 测试与日志
+---
 
-设置页提供测试按钮：
+## 9. 关键实现细节
+
+### 9.1 PrestaShop `id_parent` 提取
+
+PrestaShop API 返回的 `id_parent` 是 `{#text: 36, @_xlink:href: "..."}` 对象形式。使用 `extract()` 函数从 `#text` 取值，0 值保留不转为 null。
+
+### 9.2 父分类路径
+
+`categories.full_path` 通过自引用递归构建（如 `Accesorios > XIAOMI > Xiaomi Mi 15 Ultra`），在 CSV 导入和 PrestaShop 同步后自动更新。
+
+### 9.3 并发控制
+
+上传使用简单的 `while(index < jobs.length)` 循环 + N 个 worker，避免一次并发几十个请求导致 PrestaShop 超时。
+
+### 9.4 文件安全性
+
+- 禁止用户通过 API 传任意系统路径
+- 只允许 `.jpg/.jpeg/.png/.webp` 扩展名
+- 校验文件大小上限
+- API Key 存储在后端，前端脱敏显示
+
+---
+
+## 10. 验收标准
 
 ```text
-测试 DeepSeek 文案 API
-测试 Google Sheet 连接
-测试 Google Drive 连接
-测试图片生成 API
-测试 PrestaShop API
+✅ 能导入带 ID 和 Nombre 的分类 CSV
+✅ 能通过 PrestaShop API 同步分类（含 parent_id 正确提取）
+✅ 能扫描本地 JPG/PNG/WebP 分类图片
+✅ 能去除 imgi_数字_ 文件名前缀
+✅ 能按分类名精确匹配 + 令牌匹配
+✅ 能识别未匹配、重复和冲突
+✅ 能人工指定/批量确认分类与图片关系
+✅ 能按父分类筛选 + 显示完整层级路径
+✅ 能执行 Dry Run 预检
+✅ 正式上传前需勾选确认
+✅ 能用 curl 将 JPEG 上传至封面 + 缩略图
+✅ POST 失败时自动 PUT 覆盖
+✅ 可选择上传封面/缩略图/两者
+✅ 能记录每项上传结果 + 失败重试
+✅ API Key 不在前端明文显示
+✅ 不会因单项失败中断整个批次
+✅ 能导出上传日志 CSV
+✅ 能限制并发和单批数量
 ```
 
-日志结构：
+---
 
-```json
-{
-  "provider": "deepseek",
-  "type": "copy_generation",
-  "model": "deepseek-chat",
-  "reference": "BPT1753-N",
-  "status": "success",
-  "tokensInput": 0,
-  "tokensOutput": 0,
-  "costEstimate": 0,
-  "durationMs": 1234,
-  "error": "",
-  "createdAt": "2026-06-26T00:00:00.000Z"
-}
+## 11. 产品图片管理（v1.3）
+
+### 11.1 数据流
+
+```
+本地产品图片目录（递归扫描）
+  → product_scan_images 表（提取型号/序列号/序号/角色）
+  → product_scan_mappings 表（自动匹配）
+  → 人工确认/批量确认
+  → product_image_upload_jobs（串行上传）
+  → PrestaShop API
 ```
 
-批量限制：
+### 11.2 匹配优先级
 
-```json
-{
-  "batchCopyLimit": 50,
-  "batchImageLimit": 10,
-  "requireReviewBeforeExport": true
-}
+| 顺序 | 匹配方式 | 置信度 |
+|---|---|---|
+| 1 | 6 位序列号 = serial_number 或 reference | 1.0 |
+| 2 | 型号精确匹配（KMS-322 = KMS322） | 0.98 |
+| 3 | Reference 精确匹配 | 1.0 |
+| 4 | 型号出现在产品名称中 | 0.95 |
+
+### 11.3 数据库表
+
+- `product_scan_images` — 扫描图片资产（local_path, sha256, extracted_model, extracted_serial, extracted_sequence, detected_role）
+- `product_scan_mappings` — 匹配关系（match_type, confidence, status, image_position, is_cover）
+- `product_image_upload_jobs` — 上传任务（batch_id, prestashop_product_id, remote_image_id, status）
+
+### 11.4 上传
+
+- 模式：**追加**（不做删除/替换）
+- SHA-256 去重：同一产品 + 同一哈希 = 跳过
+- 并发：2 产品同时上传，单产品内串行
+- curl 方式：`POST /api/images/products/{productId}?ws_key=KEY -F image=@文件`
+
+### 11.5 操作流程
+
+```
+1. 顶栏 → 📦 产品图片
+2. 图片库 → 填目录路径 → 🔍 扫描
+3. 匹配管理 → 🔗 自动匹配 → 全选 → ✅ 批量确认
+4. 🚀 批量上传 → 查看进度
 ```
 
-## 15. CSV 导出
+### 11.6 API 端点 `/api/product-images`
 
-PrestaShop CSV：
+| 方法 | 端点 | 说明 |
+|---|---|---|
+| POST | `/scan` | 扫描目录 |
+| GET | `/` | 图片列表 |
+| GET | `/stats` | 统计 |
+| POST | `/clear` | 清空 |
+| POST | `/matching/run` | 自动匹配 |
+| GET | `/matching/results` | 匹配结果 |
+| POST | `/matching/confirm` | 确认 |
+| POST | `/matching/reject` | 拒绝 |
+| POST | `/matching/manual-map` | 人工映射 |
+| POST | `/uploads/create` | 创建批次 |
+| POST | `/uploads/:batchId/start` | 开始上传 |
+| POST | `/uploads/:batchId/retry-failed` | 重试 |
+| GET | `/uploads/:batchId` | 批次状态 |
 
-```text
-ID
-Reference
-Name
-Description short
-Description
-Meta title
-Meta description
-Friendly URL
-Image URLs
-Image alt texts
+### 11.7 新增文件
+
 ```
+server/src/services/productImage/
+├─ productImageNameParser.ts    # 标准化/序列号/型号/序号/角色提取
+├─ productImageScanner.ts       # 递归扫描 + SHA-256
+├─ productImageMatchingService.ts # 多级匹配
+└─ productImageUploadService.ts # 批次/curl上传/重试
 
-规则：
-
-```text
-只导出西语正式字段
-不导出中文
-只导出 可导出PrestaShop 状态商品
-图片顺序 = 主图、附图1、附图2
-```
-
-内部审核 CSV：
-
-```text
-Reference
-Spanish Name
-Spanish Short Description
-Spanish Description
-Spanish SEO Title
-Spanish SEO Description
-Chinese Short Description
-Chinese Description
-Chinese Notes
-Status
-```
-
-## 16. 前端界面
-
-打开就是管理台，不做营销首页。
-
-布局：
-
-```text
-顶部：同步、生成、导出、设置
-左侧：状态筛选、分类筛选、素材状态筛选
-中间：商品表格
-右侧：商品详情、图片预览、双语文案、SEO 检查
-```
-
-商品详情：
-
-```text
-图片预览
-主图/附图排序
-视频链接
-西班牙语上传版
-中文审核版
-SEO 检查结果
-状态修改
-保存
-```
-
-## 17. AI Prompt 基础要求
-
-```text
-你正在为 TEMCO 商品生成 PrestaShop 商品页内容。
-输出中西双语 JSON。
-
-西班牙语版本用于正式上传 PrestaShop。
-中文版本只用于本地审核和理解，不上传网站。
-
-TEMCO 是西班牙手机配件批发/展示业务，客户通常通过 WhatsApp 咨询。
-
-不要虚构价格、库存、认证、兼容型号、材质、功率、防水等级。
-如果商品资料不足，使用安全、通用、可人工确认的表达。
-
-输出字段必须包含：
-es.name
-es.descriptionShort
-es.description
-es.seoTitle
-es.seoDescription
-es.friendlyUrl
-es.imageAlt
-es.galleryImageAlts
-es.whatsappCopy
-es.videoScript
-zh 对应字段
-```
-
-## 18. SEO 检查
-
-进入 `可导出PrestaShop` 前必须通过：
-
-| 检查项 | 规则 |
-|---|---|
-| 商品名 | 不能为空 |
-| 短描述 | 不能为空，建议小于 300 字符 |
-| 长描述 | 不能为空，安全 HTML |
-| SEO 标题 | 不能为空，建议 50-60 字符 |
-| SEO 描述 | 不能为空，建议 120-155 字符 |
-| Friendly URL | 只允许小写字母、数字、短横线 |
-| 主图 | 至少一张 |
-| 图片 ALT | 主图必须有 ALT |
-| 禁用词 | 不允许价格、库存、虚假认证、夸张承诺 |
-| HTML | 禁止 script、iframe |
-
-## 19. 开发阶段
-
-第一阶段：本地基础平台
-
-```text
-项目启动
-SQLite 数据库
-Google Sheet 同步
-商品列表
-商品详情编辑
-本地保存
-```
-
-第二阶段：Drive 素材匹配
-
-```text
-扫描 Images
-扫描 Videos
-按 reference 匹配
-识别主图/附图
-识别异常命名
-```
-
-第三阶段：双语文案生成
-
-```text
-DeepSeek API 设置
-模板兜底
-单商品生成
-批量 50 个生成
-人工修改保存
-```
-
-第四阶段：图片处理和 ALT
-
-```text
-真实图下载
-sharp 处理
-SEO 文件名
-ALT 生成
-主图/附图排序
-```
-
-第五阶段：PrestaShop 导出
-
-```text
-PrestaShop CSV
-内部审核 CSV
-SEO 检查
-导出状态记录
-```
-
-第六阶段：PrestaShop API 预留
-
-```text
-根据 reference 或 id_product 找商品
-更新 description_short
-更新 description
-更新 meta_title
-更新 meta_description
-更新 link_rewrite
-上传图片
-设置 cover
-写入 image legend / alt
-保存 image id
-失败重试
-```
-
-## 20. 最终验收标准
-
-```text
-1. 能同步 Google Sheet 商品库
-2. 能同步 Google Drive 图片和视频
-3. 能按商品编号自动匹配素材
-4. 能识别图片命名异常
-5. 能生成中西双语文案
-6. 西语字段适配 PrestaShop
-7. 中文字段只用于本地审核
-8. 能生成 SEO 标题、描述、友好 URL
-9. 能生成图片 ALT
-10. 能处理真实商品图
-11. AI 图片默认关闭
-12. 能人工审核和修改
-13. 能导出 PrestaShop CSV
-14. 能导出内部审核 CSV
-15. API Key 可在后台配置并脱敏
-16. 没有 API Key 时可用模板生成
-17. PrestaShop API 默认不自动上传
-```
-
-## 21. 一句话开发原则
-
-```text
-不要做一个复杂企业 PIM，也不要做普通表格工具。
-要做一个 TEMCO 专用的轻量本地 PIM + DAM + AI 内容生成平台：
-Google Sheet 管商品，Google Drive 管素材，本地平台管生成、审核、SEO、图片处理和 PrestaShop 导出。
+server/src/routes/productImages.ts  # 14 个 API 端点
+client/src/pages/ProductImagesPage.tsx # 3 Tab 管理页
 ```

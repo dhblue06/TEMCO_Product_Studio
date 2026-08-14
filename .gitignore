@@ -5,8 +5,14 @@ server/data/*.db-shm
 server/data/*.db-wal
 server/data/uploads/
 server/data/exports/
+server/data/mobile-captures/
 .reasonix/
 *.log
 .DS_Store
 Thumbs.db
 *.tsbuildinfo
+
+# One-off debug / scratch scripts (not part of the project)
+mc-*.cjs
+i18n_edit*.py
+server/src/test_*.js

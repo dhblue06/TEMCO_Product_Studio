@@ -326,6 +326,32 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
                 <div className="detail-field"><label>默认店铺 ID</label><input value={settings.prestashop_default_shop_id || '1'} onChange={e => handleChange('prestashop_default_shop_id', e.target.value)} /></div>
                 <div className="detail-field"><label>批量同步数量</label><input type="number" value={settings.prestashop_batch_limit || '50'} onChange={e => handleChange('prestashop_batch_limit', e.target.value)} /></div>
               </div>
+              <div className="detail-field" style={{ marginTop: 8 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={settings.category_image_upload_enabled === 'true'} onChange={e => handleChange('category_image_upload_enabled', e.target.checked ? 'true' : 'false')} />
+                  启用分类图片上传
+                </label>
+              </div>
+
+              <div style={{ marginTop: 16, borderTop: '1px solid var(--border-color)', paddingTop: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: 'var(--accent)' }}>🔐 FTP 缩略图上传</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div className="detail-field"><label>FTP 主机</label><input value={settings.ftp_host || ''} onChange={e => handleChange('ftp_host', e.target.value)} placeholder="服务器 IP 或域名" /></div>
+                  <div className="detail-field"><label>端口</label><input type="number" value={settings.ftp_port || '21'} onChange={e => handleChange('ftp_port', e.target.value)} /></div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
+                  <div className="detail-field"><label>用户名</label><input value={settings.ftp_username || ''} onChange={e => handleChange('ftp_username', e.target.value)} /></div>
+                  <div className="detail-field"><label>密码</label><input type="password" value={settings.ftp_password || ''} onChange={e => handleChange('ftp_password', e.target.value)} /></div>
+                </div>
+                <div className="detail-field" style={{ marginTop: 8 }}>
+                  <label>服务器分类图片路径</label>
+                  <input value={settings.ftp_category_image_dir || ''} onChange={e => handleChange('ftp_category_image_dir', e.target.value)}
+                    placeholder="/www/wwwroot/temcostar.com/img/c" />
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                    填写服务器上 /img/c/ 目录的绝对路径（非 URL）
+                  </div>
+                </div>
+              </div>
 
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8, marginBottom: 12 }}>
                 <button className="btn btn-sm" onClick={handleTestPrestaShop} disabled={testing === 'ps'}>
@@ -360,14 +386,25 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
                 设置扫描文件夹路径。扫描时系统会读取此文件夹中的图片文件，按文件名匹配产品后自动分配到对应产品的图片槽位。
               </div>
               <div className="detail-field">
-                <label>扫描文件夹路径</label>
+                <label>扫描文件夹路径（产品图片）</label>
                 <input
                   value={settings.scan_input_path || ''}
                   onChange={(e) => handleChange('scan_input_path', e.target.value)}
                   placeholder="留空则默认使用 server/data/scan-input/"
                 />
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                  可填写绝对路径（如 D:\\images\\scan）或相对路径（相对于项目根目录）
+                  可填写绝对路径（如 D:\images\scan）或相对路径（相对于项目根目录）
+                </div>
+              </div>
+              <div className="detail-field" style={{ marginTop: 16 }}>
+                <label>分类图片目录</label>
+                <input
+                  value={settings.category_image_dir || ''}
+                  onChange={(e) => handleChange('category_image_dir', e.target.value)}
+                  placeholder="留空则默认使用 server/data/category-images/"
+                />
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                  存放分类图片的本地目录。支持子文件夹，扫描 .jpg / .png / .webp 文件
                 </div>
               </div>
             </div>

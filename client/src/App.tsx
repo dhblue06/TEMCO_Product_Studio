@@ -13,7 +13,12 @@ import ExportModal from './components/ExportModal';
 import ImageWorkshopModal from './components/ImageWorkshopModal';
 import WebsiteImportModal from './components/WebsiteImportModal';
 import ProductListImportModal from './components/ProductListImportModal';
+import CajaNewProductCheckModal from './components/CajaNewProductCheckModal';
 import ImageFinderModal from './components/ImageFinderModal';
+import CategoriesPage from './pages/CategoriesPage';
+import ProductImagesPage from './pages/ProductImagesPage';
+import MobileCaptureAccessModal from './components/mobileCapture/MobileCaptureAccessModal';
+import MobileCaptureReviewPage from './pages/MobileCaptureReviewPage';
 import { productsApi } from './services/api';
 import { ProductListItem, Pagination } from './types';
 
@@ -43,8 +48,33 @@ function App() {
   const [showWorkshopModal, setShowWorkshopModal] = useState(false);
   const [showWebsiteImportModal, setShowWebsiteImportModal] = useState(false);
   const [showProductListModal, setShowProductListModal] = useState(false);
+  const [showCajaCheck, setShowCajaCheck] = useState(false);
   const [showImageFinder, setShowImageFinder] = useState(false);
   const [refreshDetail, setRefreshDetail] = useState(0);
+  const [showCategoriesPage, setShowCategoriesPage] = useState(false);
+  const [showProductImagesPage, setShowProductImagesPage] = useState(false);
+  const [showMobileCaptureModal, setShowMobileCaptureModal] = useState(false);
+  const [showMobileCaptureReview, setShowMobileCaptureReview] = useState(false);
+
+  // 打开/关闭审核页时同步 URL，浏览器刷新时停留在审核页而不是退回主页面
+  const openReview = () => {
+    setShowMobileCaptureReview(true);
+    if (window.location.pathname !== '/mobile-capture-review') {
+      window.history.pushState({ mcReview: true }, '', '/mobile-capture-review');
+    }
+  };
+  const closeReview = () => {
+    setShowMobileCaptureReview(false);
+    if (window.location.pathname === '/mobile-capture-review') {
+      window.history.replaceState({}, '', '/');
+    }
+  };
+  // 浏览器后退（popstate）时关闭审核页
+  useEffect(() => {
+    const onPop = () => { if (showMobileCaptureReview) setShowMobileCaptureReview(false); };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [showMobileCaptureReview]);
   const [detailFlex, setDetailFlex] = useState(0.6);
   const [scanMatchedRefs, setScanMatchedRefs] = useState<string[] | null>(null);
   const [scanProgress, setScanProgress] = useState<{ current: number; total: number; message: string } | null>(null);
@@ -256,6 +286,12 @@ function App() {
         onImageWorkshopClick={() => setShowWorkshopModal(true)}
         onWebsiteImportClick={() => setShowWebsiteImportModal(true)}
         onProductListCheckClick={() => setShowProductListModal(true)}
+        onCajaCheckClick={() => setShowCajaCheck(true)}
+        onCategoriesClick={() => setShowCategoriesPage(true)}
+        onProductImagesClick={() => setShowProductImagesPage(true)}
+        onMobileCaptureClick={() => setShowMobileCaptureModal(true)}
+        onMobileCaptureReviewClick={openReview}
+        onInventoryClick={() => { window.location.href = '/inventory'; }}
         onScanFolderClick={handleScanFolder}
         onOrganizeImagesClick={handleOrganizeImages}
         onBatchRenameClick={handleBatchRename}
@@ -495,6 +531,12 @@ function App() {
         />
       )}
 
+      {showCajaCheck && (
+        <CajaNewProductCheckModal
+          onClose={() => setShowCajaCheck(false)}
+        />
+      )}
+
       {showWebsiteImportModal && (
         <WebsiteImportModal
           onClose={() => {
@@ -517,6 +559,25 @@ function App() {
             fetchProducts();
           }}
         />
+      )}
+
+      {showCategoriesPage && (
+        <CategoriesPage onClose={() => setShowCategoriesPage(false)} />
+      )}
+      {showProductImagesPage && (
+        <ProductImagesPage onClose={() => setShowProductImagesPage(false)} />
+      )}
+      {showMobileCaptureModal && (
+        <MobileCaptureAccessModal
+          onClose={() => setShowMobileCaptureModal(false)}
+          onOpenReview={() => {
+            setShowMobileCaptureModal(false);
+            openReview();
+          }}
+        />
+      )}
+      {showMobileCaptureReview && (
+        <MobileCaptureReviewPage onClose={closeReview} />
       )}
     </div>
   );
