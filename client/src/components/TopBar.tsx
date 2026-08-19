@@ -21,10 +21,12 @@ interface TopBarProps {
   onMobileCaptureClick?: () => void;
   onMobileCaptureReviewClick?: () => void;
   onInventoryClick?: () => void;
+  onStockReportClick?: () => void;
+  stockReportCount?: number;
   scanResultCount?: number;
 }
 
-const TopBar: React.FC<TopBarProps> = ({ onSyncClick, onSettingsClick, onDriveScanClick, onCopyGenerationClick, onImageProcessClick, onAiImageClick, onExportClick, onImageWorkshopClick, onScanFolderClick, onOrganizeImagesClick, onBatchRenameClick, onAddProductClick, onWebsiteImportClick, onProductListCheckClick, onCajaCheckClick, onCategoriesClick, onProductImagesClick, onMobileCaptureClick, onMobileCaptureReviewClick, onInventoryClick, scanResultCount }) => {
+const TopBar: React.FC<TopBarProps> = ({ onSyncClick, onSettingsClick, onDriveScanClick, onCopyGenerationClick, onImageProcessClick, onAiImageClick, onExportClick, onImageWorkshopClick, onScanFolderClick, onOrganizeImagesClick, onBatchRenameClick, onAddProductClick, onWebsiteImportClick, onProductListCheckClick, onCajaCheckClick, onCategoriesClick, onProductImagesClick, onMobileCaptureClick, onMobileCaptureReviewClick, onInventoryClick, onStockReportClick, stockReportCount = 0, scanResultCount }) => {
   const [showMore, setShowMore] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
 
@@ -122,6 +124,26 @@ const TopBar: React.FC<TopBarProps> = ({ onSyncClick, onSettingsClick, onDriveSc
           </button>
           <button className="btn" onClick={onInventoryClick} style={{ color: '#f59e0b', fontWeight: 600 }}>
             📦 仓库盘点
+          </button>
+          <button
+            className="btn"
+            onClick={onStockReportClick}
+            style={{ color: stockReportCount > 0 ? '#dc2626' : 'var(--text-primary)', fontWeight: stockReportCount > 0 ? 700 : 500, position: 'relative' }}
+            title="缺货上报管理"
+          >
+            📉 缺货
+            {stockReportCount > 0 && (
+              <span style={{
+                position: 'absolute', top: -6, right: -8,
+                background: '#ef4444', color: '#fff',
+                borderRadius: 999, minWidth: 18, height: 18,
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 10.5, fontWeight: 700, padding: '0 5px',
+                boxShadow: '0 0 0 2px var(--bg-secondary)',
+              }}>
+                {stockReportCount > 99 ? '99+' : stockReportCount}
+              </span>
+            )}
           </button>
           <button className="btn" onClick={onCategoriesClick}>
             分类管理

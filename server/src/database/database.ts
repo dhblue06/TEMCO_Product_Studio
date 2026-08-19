@@ -753,6 +753,28 @@ export function initializeDatabase(): void {
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );`);
 
+  // 轻量缺货上报（扫码/输条码 → 剩X件 / 剩X箱 / 已卖完）—— 区别于重型盘点批次
+  db.exec(`CREATE TABLE IF NOT EXISTS stock_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER,
+    prestashop_product_id INTEGER DEFAULT 0,
+    reference TEXT NOT NULL,
+    product_name TEXT DEFAULT '',
+    barcode TEXT DEFAULT '',
+    report_type TEXT NOT NULL CHECK(report_type IN ('pieces','boxes','sold_out')),
+    quantity INTEGER DEFAULT 0,          -- pieces/boxes 时的数量；sold_out 为 0
+    box_size INTEGER DEFAULT 0,          -- 每箱件数（report_type='boxes' 时）
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','synced','resolved')),
+    sync_status TEXT DEFAULT 'pending',  -- pending / synced / failed
+    sync_error TEXT DEFAULT '',
+    website_quantity INTEGER,            -- 上报时网站的实时库存（供对比）
+    operator_name TEXT DEFAULT '',
+    device_name TEXT DEFAULT '',
+    note TEXT DEFAULT '',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );`);
+
   db.exec(`CREATE TABLE IF NOT EXISTS warehouse_colors (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     canonical_name TEXT UNIQUE NOT NULL,
@@ -769,6 +791,12 @@ export function initializeDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_inv_model_product ON inventory_model_counts(inventory_product_id);
     CREATE INDEX IF NOT EXISTS idx_inv_color_model ON inventory_color_counts(model_count_id);
     CREATE INDEX IF NOT EXISTS idx_inv_flags_product ON inventory_stock_flags(product_id);`);
+
+  // 缺货上报索引
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_stock_reports_status ON stock_reports(status);
+    CREATE INDEX IF NOT EXISTS idx_stock_reports_product ON stock_reports(product_id);
+    CREATE INDEX IF NOT EXISTS idx_stock_reports_reference ON stock_reports(reference);
+    CREATE INDEX IF NOT EXISTS idx_stock_reports_created ON stock_reports(created_at);`);
 
   // Mobile Capture 索引
   db.exec(`CREATE INDEX IF NOT EXISTS idx_mobile_captures_session ON mobile_captures(session_id);

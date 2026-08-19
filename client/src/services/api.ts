@@ -776,3 +776,39 @@ export const cajaCheckApi = {
     });
   },
 };
+
+// v1.7 缺货上报 API（手机扫码上报 + 网站红标 + 一键同步库存）
+export const stockReportApi = {
+  /** 只读查产品（扫码/输条码，不创建记录） */
+  find(query: string) {
+    return request<any>(`/stock-report/find?query=${encodeURIComponent(query)}`);
+  },
+  /** 上报缺货（pieces/boxes/sold_out） */
+  create(data: { query?: string; productId?: number; reportType: 'pieces' | 'boxes' | 'sold_out'; quantity?: number; boxSize?: number; operatorName?: string; deviceName?: string; note?: string }) {
+    return request<any>('/stock-report', { method: 'POST', body: JSON.stringify(data) });
+  },
+  /** 缺货汇总（网站红标用） */
+  getSummary() {
+    return request<any>('/stock-report/summary');
+  },
+  /** 缺货明细列表 */
+  list(status = 'all') {
+    return request<any>(`/stock-report/list?status=${status}`);
+  },
+  /** 同步单条到网站 */
+  sync(id: number) {
+    return request<any>(`/stock-report/${id}/sync`, { method: 'POST' });
+  },
+  /** 一键同步全部 */
+  syncAll() {
+    return request<any>('/stock-report/sync-all', { method: 'POST' });
+  },
+  /** 补货后标记已解决 */
+  resolve(id: number) {
+    return request<any>(`/stock-report/${id}/resolve`, { method: 'POST' });
+  },
+  /** 删除记录 */
+  remove(id: number) {
+    return request<any>(`/stock-report/${id}`, { method: 'DELETE' });
+  },
+};

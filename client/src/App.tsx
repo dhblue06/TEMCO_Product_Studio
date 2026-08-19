@@ -19,7 +19,8 @@ import CategoriesPage from './pages/CategoriesPage';
 import ProductImagesPage from './pages/ProductImagesPage';
 import MobileCaptureAccessModal from './components/mobileCapture/MobileCaptureAccessModal';
 import MobileCaptureReviewPage from './pages/MobileCaptureReviewPage';
-import { productsApi } from './services/api';
+import StockReportPage from './pages/StockReportPage';
+import { productsApi, stockReportApi } from './services/api';
 import { ProductListItem, Pagination } from './types';
 import { useToast } from './components/ui/ToastProvider';
 import { useConfirm } from './components/ui/ConfirmProvider';
@@ -59,6 +60,8 @@ function App() {
   const [showProductImagesPage, setShowProductImagesPage] = useState(false);
   const [showMobileCaptureModal, setShowMobileCaptureModal] = useState(false);
   const [showMobileCaptureReview, setShowMobileCaptureReview] = useState(false);
+  const [showStockReport, setShowStockReport] = useState(false);
+  const [stockReportCount, setStockReportCount] = useState(0);
 
   // 打开/关闭审核页时同步 URL，浏览器刷新时停留在审核页而不是退回主页面
   const openReview = () => {
@@ -124,6 +127,19 @@ function App() {
   useEffect(() => {
     fetchMeta();
   }, [fetchMeta]);
+
+  // 缺货红标轮询（30 秒刷新；打开缺货页时也刷新）
+  useEffect(() => {
+    let mounted = true;
+    const loadCount = () => {
+      stockReportApi.getSummary().then(res => {
+        if (mounted && res.success) setStockReportCount(res.data?.count || 0);
+      }).catch(() => {});
+    };
+    loadCount();
+    const t = window.setInterval(loadCount, 30000);
+    return () => { mounted = false; window.clearInterval(t); };
+  }, [showStockReport]);
 
   useEffect(() => {
     fetchProducts();
@@ -298,6 +314,8 @@ function App() {
         onMobileCaptureClick={() => setShowMobileCaptureModal(true)}
         onMobileCaptureReviewClick={openReview}
         onInventoryClick={() => { window.location.href = '/inventory'; }}
+        onStockReportClick={() => setShowStockReport(true)}
+        stockReportCount={stockReportCount}
         onScanFolderClick={handleScanFolder}
         onOrganizeImagesClick={handleOrganizeImages}
         onBatchRenameClick={handleBatchRename}
@@ -587,6 +605,9 @@ function App() {
       )}
       {showMobileCaptureReview && (
         <MobileCaptureReviewPage onClose={closeReview} />
+      )}
+      {showStockReport && (
+        <StockReportPage onClose={() => { setShowStockReport(false); }} />
       )}
     </div>
   );

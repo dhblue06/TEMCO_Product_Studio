@@ -23,6 +23,7 @@ import mobileCaptureRouter from './routes/mobileCapture';
 import { maybeSyncPhoneModelCatalog } from './services/mobileCapture/phoneModelService';
 import { inventoryRouter } from './routes/inventory';
 import cajaCheckRouter from './routes/cajaCheck';
+import stockReportRouter from './routes/stockReport';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -55,6 +56,7 @@ app.use('/api/product-images', productImagesRouter);
 app.use('/api/mobile-capture', mobileCaptureRouter);
 app.use('/api/inventory', inventoryRouter);
 app.use('/api/caja-check', cajaCheckRouter);
+app.use('/api/stock-report', stockReportRouter);
 
 // 根路径提示
 app.get('/', (req, res) => {
