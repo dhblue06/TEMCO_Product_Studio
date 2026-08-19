@@ -6,6 +6,56 @@ import { getDatabase } from '../database/database';
 
 const TOKEN_TTL_MS = 12 * 60 * 60 * 1000; // 会话过期时间 12 小时
 
+// ===== PIN 登录限速：防暴力破解 =====
+// 按 "IP|操作员名" 记录失败次数；连错 MAX_FAILS 次后锁定 LOCK_MS
+const PIN_MAX_FAILS = 5;            // 连续失败上限
+const PIN_LOCK_MS = 10 * 60 * 1000; // 锁定 10 分钟
+const pinFails = new Map<string, { count: number; lockedUntil: number }>();
+
+function pinKey(req: Request): string {
+  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+    || req.socket?.remoteAddress
+    || 'unknown';
+  const op = String((req.body as any)?.operatorName || '').trim() || 'unknown';
+  return `${ip}|${op}`;
+}
+
+function isPinLocked(req: Request): { locked: boolean; retryAfterSec: number } {
+  const entry = pinFails.get(pinKey(req));
+  if (!entry || entry.lockedUntil <= Date.now()) return { locked: false, retryAfterSec: 0 };
+  return { locked: true, retryAfterSec: Math.ceil((entry.lockedUntil - Date.now()) / 1000) };
+}
+
+function recordPinFail(req: Request): { locked: boolean; retryAfterSec: number; remaining: number } {
+  const key = pinKey(req);
+  const now = Date.now();
+  const entry = pinFails.get(key);
+  // 锁定已过期 → 重置计数
+  if (entry && entry.lockedUntil <= now) pinFails.delete(key);
+  const cur = pinFails.get(key) || { count: 0, lockedUntil: 0 };
+  cur.count += 1;
+  if (cur.count >= PIN_MAX_FAILS) {
+    cur.lockedUntil = now + PIN_LOCK_MS;
+    cur.count = 0;
+    pinFails.set(key, cur);
+    return { locked: true, retryAfterSec: PIN_LOCK_MS / 1000, remaining: 0 };
+  }
+  pinFails.set(key, cur);
+  return { locked: false, retryAfterSec: 0, remaining: PIN_MAX_FAILS - cur.count };
+}
+
+function recordPinSuccess(req: Request): void {
+  pinFails.delete(pinKey(req));
+}
+
+/** 周期清理过期的失败记录（防内存泄漏） */
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of pinFails) {
+    if (v.lockedUntil <= now) pinFails.delete(k);
+  }
+}, 60 * 1000);
+
 interface MobileToken {
   token: string;
   operatorName: string;
@@ -73,12 +123,29 @@ authRouter.post('/pin', (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: '操作员和设备名称不能为空' });
     }
 
+    // 限速：锁定期间直接拒绝
+    const lock = isPinLocked(req);
+    if (lock.locked) {
+      return res.status(429).json({
+        success: false,
+        error: `尝试次数过多，已锁定 ${Math.ceil(lock.retryAfterSec / 60)} 分钟，请稍后再试`,
+        locked: true,
+        retryAfterSec: lock.retryAfterSec,
+      });
+    }
+
     const configuredPin = getSetting('mobile_capture_pin');
     if (configuredPin) {
       if (!pin || String(pin) !== configuredPin) {
-        return res.status(401).json({ success: false, error: 'PIN 不正确' });
+        const fail = recordPinFail(req);
+        const msg = fail.locked
+          ? `PIN 错误次数过多，已锁定 10 分钟，请稍后再试`
+          : `PIN 不正确（还剩 ${fail.remaining} 次机会）`;
+        return res.status(401).json({ success: false, error: msg, locked: fail.locked });
       }
     }
+    // 登录成功 → 清零失败计数
+    recordPinSuccess(req);
 
     const token = crypto.randomBytes(24).toString('hex');
     const now = Date.now();

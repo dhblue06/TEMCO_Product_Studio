@@ -28,8 +28,29 @@ import stockReportRouter from './routes/stockReport';
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// 中间件
-app.use(cors());
+// CORS 白名单：允许本机(localhost) + 局域网私有网段（手机通过 WiFi 访问，IP 可能变化）
+// 不在白名单的请求源将被拒绝（防其他网站/脚本调用本 API）
+// 注意：cors 包 origin 回调是异步风格 (origin, callback)，必须调用 callback
+const isAllowedOrigin = (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void): void => {
+  if (!origin) { callback(null, true); return; } // 无 Origin（curl/服务器间调用）放行
+  try {
+    const host = new URL(origin).hostname;
+    // 本机
+    if (host === 'localhost' || host === '127.0.0.1' || host === '::1') { callback(null, true); return; }
+    // 局域网私有网段：192.168.x.x / 10.x.x.x / 172.16-31.x.x
+    if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(host)) { callback(null, true); return; }
+    if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) { callback(null, true); return; }
+    if (/^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(host)) { callback(null, true); return; }
+    callback(null, false); // 拒绝：不设置 CORS 头
+  } catch {
+    callback(null, false);
+  }
+};
+
+app.use(cors({
+  origin: isAllowedOrigin,
+  credentials: true,
+}));
 app.use(express.json({ limit: '50mb' }));
 app.use(morgan('dev'));
 

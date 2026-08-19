@@ -17,3 +17,9 @@ Thumbs.db
 mc-*.cjs
 i18n_edit*.py
 server/src/test_*.js
+server/src/test_*.cjs
+server/src/check_*.js
+server/src/start_server*.js
+server/src/routes/replace_route.cjs
+client/src/components/*.bak
+client/src/components/*.cjs
