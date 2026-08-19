@@ -1,7 +1,6 @@
 import { XMLParser, XMLBuilder } from 'fast-xml-parser';
 import fs from 'fs';
 import path from 'path';
-const FormData = require('form-data');
 
 export interface PrestaShopConfig {
   baseUrl: string;
@@ -214,6 +213,7 @@ export class PrestaShopClient {
   /**
    * 上传商品图片到 PrestaShop
    * POST /api/images/products/{productId}
+   * 使用 Node 原生 fetch + FormData（不依赖外部 curl，避免 spawn 子进程失败）
    */
   async uploadProductImage(productId: number, imagePath: string): Promise<{ imageId: number | null; success: boolean; error?: string }> {
     try {
@@ -240,40 +240,41 @@ export class PrestaShopClient {
         }
       }
 
-      const { exec } = require('child_process');
-      const result = await new Promise<any>((resolve) => {
-        exec(`curl -s -X POST "${url}" -F "image=@${uploadPath}"`, {
-          maxBuffer: 100 * 1024 * 1024,
-          timeout: 120000,
-        }, (err: any, stdout: string) => {
-          if (!stdout) {
-            resolve({ imageId: null, success: false, error: err?.message || '无响应' });
-            return;
-          }
-          try {
-            const { XMLParser } = require('fast-xml-parser');
-            const parser = new XMLParser({ ignoreAttributes: false });
-            const parsed = parser.parse(stdout);
-            const unwrapped = parsed?.prestashop || parsed;
-            if (unwrapped?.errors?.error) {
-              const e = Array.isArray(unwrapped.errors.error) ? unwrapped.errors.error[0] : unwrapped.errors.error;
-              resolve({ imageId: null, success: false, error: e.message || JSON.stringify(e) });
-              return;
-            }
-            const imageId = unwrapped?.image?.id;
-            resolve({ imageId: imageId ? Number(imageId) : null, success: true });
-          } catch (e: any) {
-            resolve({ imageId: null, success: false, error: e.message });
-          }
-        });
-      });
+      // Node 原生 fetch + FormData 上传（multipart/form-data）
+      const buffer = fs.readFileSync(uploadPath);
+      const fileName = path.basename(uploadPath);
+      const form = new FormData();
+      const blob = new Blob([buffer], { type: 'image/jpeg' });
+      form.append('image', blob, fileName);
+
+      const response = await fetch(url, { method: 'POST', body: form });
 
       // 清理临时压缩文件
       if (uploadPath !== imagePath) {
         try { fs.unlinkSync(uploadPath); } catch {}
       }
 
-      return result;
+      const text = await response.text();
+      if (!text) {
+        return { imageId: null, success: false, error: `HTTP ${response.status}，无响应内容` };
+      }
+      try {
+        const { XMLParser } = require('fast-xml-parser');
+        const parser = new XMLParser({ ignoreAttributes: false });
+        const parsed = parser.parse(text);
+        const unwrapped = parsed?.prestashop || parsed;
+        if (unwrapped?.errors?.error) {
+          const e = Array.isArray(unwrapped.errors.error) ? unwrapped.errors.error[0] : unwrapped.errors.error;
+          return { imageId: null, success: false, error: e.message || JSON.stringify(e) };
+        }
+        const imageId = unwrapped?.image?.id;
+        if (!imageId) {
+          return { imageId: null, success: false, error: `响应中未找到图片 ID（HTTP ${response.status}）` };
+        }
+        return { imageId: Number(imageId), success: true };
+      } catch (e: any) {
+        return { imageId: null, success: false, error: `解析响应失败: ${e.message}（HTTP ${response.status}）` };
+      }
     } catch (err: any) {
       return { imageId: null, success: false, error: err.message };
     }
@@ -281,22 +282,12 @@ export class PrestaShopClient {
 
   async updateProductImageCover(productId: number, imageId: number, cover: 0 | 1): Promise<void> {
     const url = `${this.getBaseUrl()}/images/products/${productId}/${imageId}?ws_key=${this.config.apiKey}`;
-
-    await new Promise<void>((resolve, reject) => {
-      const form = new FormData();
-      form.append('cover', String(cover));
-      
-      form.submit(url, (err: any, res: any) => {
-        if (err) { reject(err); return; }
-        let data = '';
-        res.on('data', (c: Buffer) => data += c.toString());
-        res.on('end', () => {
-          if (res.statusCode >= 200 && res.statusCode < 300) resolve();
-          else reject(new Error(`HTTP ${res.statusCode}`));
-        });
-        res.on('error', reject);
-      });
-    });
+    const form = new FormData();
+    form.append('cover', String(cover));
+    const response = await fetch(url, { method: 'POST', body: form });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
   }
 
   // 辅助：确保返回数组（PrestaShop 单条时返回对象，多条时返回数组）
