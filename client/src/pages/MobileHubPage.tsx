@@ -5,10 +5,8 @@ import { useI18n, LangSwitch } from '../i18n';
 interface Entry {
   path: string;
   icon: string;
-  titleZh: string;
-  titleEs: string;
-  descZh: string;
-  descEs: string;
+  titleKey: string;
+  descKey: string;
   accent: string;
 }
 
@@ -16,28 +14,22 @@ const ENTRIES: Entry[] = [
   {
     path: '/mobile-capture',
     icon: '📷',
-    titleZh: '商品采集',
-    titleEs: 'Captura',
-    descZh: '扫码找货、拍照、颜色/库存/型号登记',
-    descEs: 'Escanear, fotos, colores/stock/modelos',
+    titleKey: 'hub.capture',
+    descKey: 'hub.captureDesc',
     accent: 'var(--accent)',
   },
   {
     path: '/mobile-stock',
     icon: '📉',
-    titleZh: '缺货上报',
-    titleEs: 'Faltantes',
-    descZh: '扫码报"剩X件/剩X箱/已卖完"，同步网站',
-    descEs: 'Reportar unidades/cajas/agotado, sincronizar web',
+    titleKey: 'hub.stock',
+    descKey: 'hub.stockDesc',
     accent: '#dc2626',
   },
   {
     path: '/mobile-inventory',
     icon: '📦',
-    titleZh: '仓库盘点',
-    titleEs: 'Inventario',
-    descZh: '批次盘点：型号×颜色×数量',
-    descEs: 'Recuento por lotes: modelo×color×cantidad',
+    titleKey: 'hub.inventory',
+    descKey: 'hub.inventoryDesc',
     accent: '#f59e0b',
   },
 ];
@@ -79,8 +71,8 @@ export function MobileHubPage() {
             >
               <span style={{ fontSize: 30, flexShrink: 0 }}>{e.icon}</span>
               <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{e.titleZh}</span>
-                <span style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{e.descZh}</span>
+                <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{t(e.titleKey)}</span>
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{t(e.descKey)}</span>
               </span>
               <span style={{ fontSize: 20, color: 'var(--text-muted)', flexShrink: 0 }}>›</span>
             </button>

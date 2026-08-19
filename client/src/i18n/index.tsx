@@ -21,6 +21,43 @@ const DICT: Record<string, Entry> = {
   // 手机端入口（hub）
   'hub.subtitle': { zh: '选择你的工作入口', es: 'Elige tu tarea' },
   'hub.hint': { zh: '三个入口共用同一账号 · 选择后进入对应工作台', es: 'Misma cuenta para todos · Elige y empieza' },
+  'hub.capture': { zh: '商品采集', es: 'Captura' },
+  'hub.captureDesc': { zh: '扫码找货、拍照、颜色/库存/型号登记', es: 'Escanear, fotos, colores/stock/modelos' },
+  'hub.stock': { zh: '缺货上报', es: 'Faltantes' },
+  'hub.stockDesc': { zh: '扫码报"剩X件/剩X箱/已卖完"，同步网站', es: 'Reportar unidades/cajas/agotado, sincronizar web' },
+  'hub.inventory': { zh: '仓库盘点', es: 'Inventario' },
+  'hub.inventoryDesc': { zh: '批次盘点：型号×颜色×数量', es: 'Recuento por lotes: modelo×color×cantidad' },
+
+  // 缺货上报（手机端）
+  'stock.title': { zh: '缺货上报', es: 'Faltantes' },
+  'stock.scan': { zh: '📷 扫码', es: '📷 Escanear' },
+  'stock.manual': { zh: '⌨️ 输条码', es: '⌨️ Código' },
+  'stock.startScan': { zh: '▶ 开始扫码', es: '▶ Iniciar escáner' },
+  'stock.stopScan': { zh: '⏹ 停止扫码', es: '⏹ Detener escáner' },
+  'stock.photoScan': { zh: '📷 拍照扫码', es: '📷 Foto escáner' },
+  'stock.noCameraHint': { zh: '此网络环境不支持实时摄像头，可用"拍照扫码"或手动输入', es: 'Cámara en vivo no disponible; use foto o código manual' },
+  'stock.queryPh': { zh: '输入条码 / 编号 / 名称', es: 'Código / Ref / Nombre' },
+  'stock.query': { zh: '查询', es: 'Buscar' },
+  'stock.notFound': { zh: '未找到该产品，请检查条码或编号', es: 'Producto no encontrado' },
+  'stock.queryFail': { zh: '查询失败', es: 'Error de búsqueda' },
+  'stock.type': { zh: '缺货类型', es: 'Tipo de falta' },
+  'stock.typePieces': { zh: '剩余件数', es: 'Unidades' },
+  'stock.typeBoxes': { zh: '剩余箱数', es: 'Cajas' },
+  'stock.typeSoldOut': { zh: '已卖完', es: 'Agotado' },
+  'stock.qtyPieces': { zh: '剩余件数', es: 'Unidades restantes' },
+  'stock.qtyBoxes': { zh: '剩余箱数', es: 'Cajas restantes' },
+  'stock.qtyPhPieces': { zh: '例如 5 件', es: 'Ej.: 5' },
+  'stock.qtyPhBoxes': { zh: '例如 3 箱', es: 'Ej.: 3' },
+  'stock.boxSize': { zh: '每箱件数', es: 'Unid. por caja' },
+  'stock.soldOutWarn': { zh: '⚠️ 标记为已卖完（同步后网站库存将为 0）', es: '⚠️ Agotado: stock web quedará en 0' },
+  'stock.notePh': { zh: '备注（可选）', es: 'Nota (opcional)' },
+  'stock.submit': { zh: '提交缺货上报', es: 'Enviar reporte' },
+  'stock.submitSoldOut': { zh: '🚫 标记已卖完', es: '🚫 Marcar agotado' },
+  'stock.submitting': { zh: '提交中...', es: 'Enviando...' },
+  'stock.done': { zh: '缺货已记录，网站红标已更新', es: 'Registrado. Aviso web actualizado' },
+  'stock.submitFail': { zh: '提交失败', es: 'Error al enviar' },
+  'stock.hint': { zh: '📷 扫描或输入条码后，选择缺货类型提交', es: 'Escanee o escriba el código y elija el tipo de falta' },
+  'stock.websiteQty': { zh: '网站当前库存', es: 'Stock web actual' },
 
   // 登录 / 会话
   'login.title': { zh: '开始采集', es: 'Iniciar captura' },
@@ -313,11 +350,19 @@ const DICT: Record<string, Entry> = {
   'ps.refresh': { zh: '刷新状态', es: 'Refrescar' },
   'ps.category': { zh: '分类', es: 'Categoría' },
   'common.opFail': { zh: '操作失败', es: 'Error de operación' },
+
+  // 确认对话框标题（避免西语下显示中文兜底）
+  'task.deleteTitle': { zh: '删除任务', es: 'Eliminar tarea' },
+  'session.deleteTitle': { zh: '删除会话', es: 'Eliminar sesión' },
+  'alert.saved': { zh: '已保存', es: 'Guardado' },
+  'alert.alreadyCapturedTitle': { zh: '重新采集', es: 'Recapturar' },
+  'capture.noPhotoTitle': { zh: '提交确认', es: 'Confirmar envío' },
+  'inv.doneTitle': { zh: '完成盘点', es: 'Finalizar recuento' },
 };
 
 // ===== Context =====
 const LangContext = createContext<{ lang: Lang; setLang: (l: Lang) => void; t: (key: string) => string }>({
-  lang: 'zh',
+  lang: 'es',
   setLang: () => {},
   t: (k) => k,
 });
@@ -326,8 +371,8 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [lang, setLangState] = useState<Lang>(() => {
     try {
       const s = localStorage.getItem('mobile_lang');
-      return s === 'es' ? 'es' : 'zh';
-    } catch { return 'zh'; }
+      return s === 'es' ? 'es' : s === 'zh' ? 'zh' : 'es'; // 默认西语
+    } catch { return 'es'; }
   });
 
   useEffect(() => {
