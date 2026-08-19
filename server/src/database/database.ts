@@ -191,6 +191,7 @@ export function initializeDatabase(): void {
   ensureColumn('mobile_captures', 'phone_models', `TEXT DEFAULT ''`);
   ensureColumn('products', 'sold_out', `INTEGER DEFAULT 0`);
   ensureColumn('products', 'sold_out_at', `TEXT DEFAULT ''`);
+  ensureColumn('stock_reports', 'images_json', `TEXT DEFAULT '[]'`); // 缺货上报照片（相对路径列表）
   // 初始化默认设置
   const insertDefaultSetting = (key: string, value: string) => {
     db.prepare('INSERT OR IGNORE INTO api_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)').run(key, value);
@@ -768,6 +769,7 @@ export function initializeDatabase(): void {
     sync_status TEXT DEFAULT 'pending',  -- pending / synced / failed
     sync_error TEXT DEFAULT '',
     website_quantity INTEGER,            -- 上报时网站的实时库存（供对比）
+    images_json TEXT DEFAULT '[]',       -- 上传的产品照片（相对路径列表）
     operator_name TEXT DEFAULT '',
     device_name TEXT DEFAULT '',
     note TEXT DEFAULT '',

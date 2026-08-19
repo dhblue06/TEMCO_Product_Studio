@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useMobileCaptureSession } from '../hooks/useMobileCaptureSession';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
+import { useCameraCapture } from '../hooks/useCameraCapture';
 import { useI18n, LangSwitch } from '../i18n';
 import { stockReportApi } from '../services/api';
 import SessionStart from '../components/mobileCapture/SessionStart';
@@ -18,6 +19,12 @@ interface FoundProduct {
   brand: string;
   category: string;
   websiteQuantity: number | null;
+}
+
+interface PendingPhoto {
+  id: string;
+  file: File;
+  previewUrl: string;
 }
 
 export function MobileStockReportPage() {
@@ -40,6 +47,24 @@ export function MobileStockReportPage() {
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // 拍照暂存（提交时一起上传；不强制）
+  const [pendingPhotos, setPendingPhotos] = useState<PendingPhoto[]>([]);
+  const objectUrlsRef = useRef<string[]>([]);
+  const { trigger: triggerCamera } = useCameraCapture((files) => {
+    const items = files.map(f => ({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      file: f,
+      previewUrl: URL.createObjectURL(f),
+    }));
+    objectUrlsRef.current.push(...items.map(i => i.previewUrl));
+    setPendingPhotos(prev => [...prev, ...items]);
+  });
+
+  // 清理 object URLs
+  useEffect(() => {
+    return () => { objectUrlsRef.current.forEach(u => URL.revokeObjectURL(u)); };
+  }, []);
+
   // 搜索产品（条码/reference/名称，只读查询不创建记录）
   const handleQuery = useCallback(async (q: string) => {
     const query = String(q || '').trim();
@@ -52,6 +77,7 @@ export function MobileStockReportPage() {
         setQuantity('');
         setNote('');
         setReportType('pieces');
+        setPendingPhotos([]);
         stop();
       } else {
         toastError(res.error || t('stock.notFound'), { vibrate: true });
@@ -191,6 +217,30 @@ export function MobileStockReportPage() {
 
               <textarea className="mobile-field" value={note} onChange={e => setNote(e.target.value)} placeholder={t('stock.notePh')} rows={2} style={{ resize: 'vertical' }} />
 
+              {/* 拍照上传（可选，不强制） */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div className="ui-section-title" style={{ marginBottom: 0 }}>{t('stock.photo')}</div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button type="button" className="btn mobile-btn" onClick={() => triggerCamera(true)} style={{ flex: 1 }}>📷 {t('stock.photoTake')}</button>
+                  <button type="button" className="btn mobile-btn" onClick={() => triggerCamera(false)} style={{ flex: 1 }}>🖼 {t('stock.photoAlbum')}</button>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t('stock.photoHint')}</div>
+                {pendingPhotos.length > 0 && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+                    {pendingPhotos.map(p => (
+                      <div key={p.id} style={{ position: 'relative', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border-color)' }}>
+                        <img src={p.previewUrl} alt="" style={{ width: '100%', height: 72, objectFit: 'cover', display: 'block' }} />
+                        <button
+                          type="button"
+                          onClick={() => setPendingPhotos(prev => prev.filter(x => x.id !== p.id))}
+                          style={{ position: 'absolute', top: 3, right: 3, background: 'rgba(220,38,38,.85)', color: '#fff', border: 'none', borderRadius: 6, width: 20, height: 20, fontSize: 11, cursor: 'pointer', lineHeight: 1 }}
+                        >✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <button
                 type="button"
                 className="btn btn-cta mobile-btn"
@@ -208,9 +258,20 @@ export function MobileStockReportPage() {
                       note,
                     });
                     if (res.success) {
-                      success('✅ ' + t('stock.done'), { vibrate: true });
+                      // 提交成功 → 上传暂存的照片（逐张，失败不阻断主流程）
+                      const reportId = res.data?.id;
+                      let photoFail = 0;
+                      if (reportId && pendingPhotos.length > 0) {
+                        for (const p of pendingPhotos) {
+                          try {
+                            const up = await stockReportApi.uploadImage(reportId, p.file);
+                            if (!up.success) photoFail++;
+                          } catch { photoFail++; }
+                        }
+                      }
+                      success('✅ ' + t('stock.done') + (photoFail > 0 ? `（${photoFail} 张照片上传失败）` : ''), { vibrate: true });
                       // 清空继续下一个
-                      setProduct(null); setQuantity(''); setNote('');
+                      setProduct(null); setQuantity(''); setNote(''); setPendingPhotos([]);
                       if (active) stop();
                     } else {
                       toastError(res.error || t('stock.submitFail'));

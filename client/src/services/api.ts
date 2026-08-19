@@ -783,6 +783,20 @@ export const stockReportApi = {
   find(query: string) {
     return request<any>(`/stock-report/find?query=${encodeURIComponent(query)}`);
   },
+  /** 上传上报图片（拍照/相册，自动附加到上报记录） */
+  uploadImage(reportId: number, file: File) {
+    const form = new FormData();
+    form.append('image', file);
+    return request<any>(`/stock-report/${reportId}/upload-image`, { method: 'POST', body: form });
+  },
+  /** 删除上报图片 */
+  removeImage(reportId: number, name: string) {
+    return request<any>(`/stock-report/${reportId}/image/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  },
+  /** 上报图片 URL */
+  imageUrl(reportId: number, name: string) {
+    return `${API_BASE}/stock-report/${reportId}/image/${encodeURIComponent(name)}`;
+  },
   /** 上报缺货（pieces/boxes/sold_out） */
   create(data: { query?: string; productId?: number; reportType: 'pieces' | 'boxes' | 'sold_out'; quantity?: number; boxSize?: number; operatorName?: string; deviceName?: string; note?: string }) {
     return request<any>('/stock-report', { method: 'POST', body: JSON.stringify(data) });

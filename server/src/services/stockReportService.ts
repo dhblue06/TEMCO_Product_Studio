@@ -1,6 +1,59 @@
 // 缺货上报服务：扫码/输条码 → 报"剩X件 / 剩X箱 / 已卖完" → 网站红标 + 一键同步库存到 PrestaShop
+import fs from 'fs';
+import path from 'path';
 import { getDatabase } from '../database/database';
 import { PrestaShopClient } from './prestashop/prestashopClient';
+
+/** 缺货上报图片目录：data/uploads/stock-reports/{reportId}/ */
+function reportImagesDir(reportId: number): string {
+  const dir = path.join(__dirname, '../../data/uploads/stock-reports', String(reportId));
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/** 保存上报图片（multer 内存 buffer → 文件），返回相对路径列表 */
+export function saveReportImage(reportId: number, file: { originalname?: string; buffer: Buffer; mimetype?: string }): { url: string; name: string } {
+  const db = getDatabase();
+  const report = db.prepare('SELECT * FROM stock_reports WHERE id = ?').get(reportId) as any;
+  if (!report) throw new Error('上报记录不存在');
+
+  const ext = (file.mimetype || '').split('/')[1] || 'jpg';
+  const safeExt = ['jpeg', 'png', 'webp', 'heic', 'heif'].includes(ext) ? (ext === 'jpeg' ? 'jpg' : ext) : 'jpg';
+  const name = `photo_${Date.now()}_${Math.round(Math.random() * 10000)}.${safeExt}`;
+  const dir = reportImagesDir(reportId);
+  fs.writeFileSync(path.join(dir, name), file.buffer);
+
+  const url = `/api/stock-report/${reportId}/image/${name}`;
+  const current = (() => { try { return JSON.parse(report.images_json || '[]'); } catch { return []; } })();
+  current.push({ url, name, original: file.originalname || name, size: file.buffer.length, at: new Date().toISOString() });
+  db.prepare('UPDATE stock_reports SET images_json = ?, updated_at = datetime(\'now\') WHERE id = ?')
+    .run(JSON.stringify(current), reportId);
+  return { url, name };
+}
+
+/** 读取上报图片文件（供静态服务） */
+export function getReportImageFile(reportId: number, name: string): { filePath: string; exists: boolean } {
+  const safe = path.basename(name); // 防目录穿越
+  const dir = reportImagesDir(reportId);
+  const filePath = path.join(dir, safe);
+  return { filePath, exists: fs.existsSync(filePath) };
+}
+
+/** 删除某张上报图片 */
+export function deleteReportImage(reportId: number, name: string): boolean {
+  const db = getDatabase();
+  const report = db.prepare('SELECT * FROM stock_reports WHERE id = ?').get(reportId) as any;
+  if (!report) return false;
+  const safe = path.basename(name);
+  const filePath = path.join(reportImagesDir(reportId), safe);
+  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  const current = (() => { try { return JSON.parse(report.images_json || '[]'); } catch { return []; } })();
+  const next = current.filter((i: any) => i.name !== safe);
+  db.prepare('UPDATE stock_reports SET images_json = ?, updated_at = datetime(\'now\') WHERE id = ?')
+    .run(JSON.stringify(next), reportId);
+  return true;
+}
+
 
 function getSetting(key: string): string {
   const db = getDatabase();

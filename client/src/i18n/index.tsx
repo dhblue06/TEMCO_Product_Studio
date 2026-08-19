@@ -59,6 +59,12 @@ const DICT: Record<string, Entry> = {
   'stock.submitFail': { zh: '提交失败', es: 'Error al enviar' },
   'stock.hint': { zh: '📷 扫描或输入条码后，选择缺货类型提交', es: 'Escanee o escriba el código y elija el tipo de falta' },
   'stock.websiteQty': { zh: '网站当前库存', es: 'Stock web actual' },
+  'stock.photo': { zh: '📷 拍照上传（可选）', es: '📷 Foto (opcional)' },
+  'stock.photoTake': { zh: '拍照', es: 'Foto' },
+  'stock.photoAlbum': { zh: '相册', es: 'Galería' },
+  'stock.photoHint': { zh: '可为产品拍照留证（不强制，可跳过直接提交）', es: 'Foto opcional del producto (puede omitirse)' },
+  'stock.photoUploading': { zh: '上传照片中...', es: 'Subiendo foto...' },
+  'stock.photoFail': { zh: '照片上传失败', es: 'Error al subir foto' },
 
   // 登录 / 会话
   'login.title': { zh: '开始采集', es: 'Iniciar captura' },
