@@ -452,3 +452,93 @@ select:focus { border-color: var(--accent); }
   .left-panel { width: 200px; }
   :root { --detail-width: 50vw; }
 }
+
+/* ===================== Mobile adapt (phone capture / inventory) ===================== */
+/* 手机端安全区（iPhone 底部横条 / 刘海） */
+.mobile-safe-top { padding-top: env(safe-area-inset-top, 0px); }
+.mobile-safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
+
+@media (max-width: 600px) {
+  /* 触控目标 ≥ 44px：手机端所有主按钮加大 */
+  .mobile-btn-lg {
+    min-height: 46px;
+    font-size: 15px !important;
+    padding: 12px 16px !important;
+    border-radius: 10px !important;
+  }
+  .mobile-btn {
+    min-height: 42px;
+    padding: 10px 14px !important;
+    border-radius: 10px !important;
+    font-size: 14px !important;
+  }
+  /* 手机端输入框更大，避免 iOS 缩放 */
+  .mobile-field {
+    min-height: 44px;
+    font-size: 15px !important;
+    padding: 10px 12px !important;
+    border-radius: 10px !important;
+  }
+  /* 防止 iOS 聚焦自动缩放 */
+  input, select, textarea { font-size: 16px; }
+  input:focus, select:focus, textarea:focus { font-size: 16px; }
+}
+
+/* === 通用卡片（统一圆角/阴影/边框，替代散落内联样式） === */
+.ui-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-sm);
+}
+.ui-card + .ui-card { margin-top: var(--space-3); }
+
+/* 分组标题：小标签式 */
+.ui-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  letter-spacing: 0.4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: var(--space-2);
+}
+.ui-section-title::before {
+  content: '';
+  width: 3px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+/* === 表格斑马纹 + 更清晰的 hover === */
+.product-table tbody tr:nth-child(even) { background: rgba(0,0,0,0.015); }
+.product-table tbody tr:hover { background: var(--bg-hover); }
+.product-table tr.selected,
+.product-table tbody tr.selected:nth-child(even) { background: var(--accent-light); }
+
+/* === 顶部导航（移动端主界面） === */
+.mobile-topbar {
+  background: linear-gradient(135deg, #1e40af 0%, #2563eb 55%, #3b82f6 100%);
+  color: #fff;
+  box-shadow: 0 2px 12px rgba(37, 99, 235, 0.25);
+}
+
+/* === 底部固定操作栏（移动端） === */
+.mobile-bottom-bar {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  padding: 10px 12px;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  background: rgba(255,255,255,0.96);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid var(--border-color);
+  box-shadow: 0 -2px 12px rgba(0,0,0,0.06);
+  z-index: 100;
+  display: flex;
+  gap: 8px;
+}

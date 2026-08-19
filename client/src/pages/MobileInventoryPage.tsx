@@ -228,7 +228,7 @@ export function MobileInventoryPage() {
               <div style={{ fontSize: 14, fontWeight: 700 }}>{t('inv.new')}</div>
               <input value={newSessionName} onChange={e => setNewSessionName(e.target.value)} placeholder={t('inv.newPh')}
                 style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: 14, background: 'var(--bg-secondary)', color: 'var(--text-primary)' }} />
-              <button type="button" className="btn btn-primary" onClick={createSession} disabled={loading} style={{ padding: 12 }}>{t('inv.start')}</button>
+              <button type="button" className="btn btn-primary mobile-btn" onClick={createSession} disabled={loading}>{t('inv.start')}</button>
             </div>
           )}
 
@@ -240,7 +240,7 @@ export function MobileInventoryPage() {
                   onKeyDown={e => e.key === 'Enter' && searchProduct()}
                   placeholder={t('inv.searchPh')}
                   style={{ flex: 1, padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: 15, background: 'var(--bg-secondary)', color: 'var(--text-primary)' }} />
-                <button type="button" className="btn btn-primary" onClick={searchProduct} disabled={loading}>{loading ? '...' : t('common.search')}</button>
+                <button type="button" className="btn btn-primary mobile-btn" onClick={searchProduct} disabled={loading}>{loading ? '...' : t('common.search')}</button>
               </div>
               {searchResult?.match && (
                 <button type="button" onClick={() => addProduct(searchResult.match.productId)}
@@ -365,8 +365,8 @@ function SummaryView({ product, onDone, onBack }: { product: InvProduct; onDone:
       )}
 
       <div style={{ display: 'flex', gap: 8 }}>
-        <button type="button" className="btn" onClick={onBack} style={{ flex: 1, padding: 12 }}>{t('inv.continueCount')}</button>
-        <button type="button" className="btn btn-primary" onClick={onDone} style={{ flex: 1.5, padding: 12 }}>{t('inv.summaryDone')}</button>
+        <button type="button" className="btn mobile-btn" onClick={onBack} style={{ flex: 1 }}>{t('inv.continueCount')}</button>
+        <button type="button" className="btn btn-primary mobile-btn" onClick={onDone} style={{ flex: 1.5 }}>{t('inv.summaryDone')}</button>
       </div>
     </div>
   );

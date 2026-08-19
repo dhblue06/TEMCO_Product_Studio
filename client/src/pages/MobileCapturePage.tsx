@@ -716,20 +716,20 @@ export default function MobileCapturePage() {
   // 主采集界面
   return (
     <MobileShell networkOk={networkOk}>
-      {/* 顶部：操作员/会话 */}
-      <div style={{ padding: '10px 16px', background: 'var(--accent)', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+      {/* 顶部：操作员/会话（渐变蓝 + 安全区） */}
+      <div className="mobile-topbar mobile-safe-top" style={{ padding: '10px 16px', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <span style={{ fontWeight: 700, fontSize: 14 }}>📱 TEMCO Mobile Capture</span>
-          <span style={{ fontSize: 11, opacity: .9 }}>{session.session_code} · {auth.operatorName}</span>
+          <span style={{ fontWeight: 700, fontSize: 15 }}>📱 TEMCO Mobile Capture</span>
+          <span style={{ fontSize: 11, opacity: .92 }}>{session.session_code} · {auth.operatorName}</span>
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <span title={networkOk ? t('network.connected') : t('network.disconnected')} style={{ width: 10, height: 10, borderRadius: 10, background: networkOk ? '#4ade80' : '#f87171' }} />
+          <span title={networkOk ? t('network.connected') : t('network.disconnected')} style={{ width: 10, height: 10, borderRadius: 10, background: networkOk ? '#4ade80' : '#f87171', boxShadow: networkOk ? '0 0 0 3px rgba(74,222,128,.25)' : '0 0 0 3px rgba(248,113,113,.25)' }} />
           {uploadQueue.some(q => q.status === 'pending' || q.status === 'failed') && (
-            <span style={{ fontSize: 11, background: 'rgba(255,255,255,.25)', padding: '2px 8px', borderRadius: 10 }}>
+            <span style={{ fontSize: 11, background: 'rgba(255,255,255,.22)', padding: '2px 8px', borderRadius: 10 }}>
               {t('queue.pendingCount')} {uploadQueue.filter(q => q.status !== 'done').length}
             </span>
           )}
-          <button type="button" onClick={() => { setShowSessionPicker(true); loadSessions(); loadDraftTasks(); }} style={{ background: 'rgba(255,255,255,.2)', color: '#fff', border: 'none', borderRadius: 8, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>{t('session.btn')}</button>
+          <button type="button" onClick={() => { setShowSessionPicker(true); loadSessions(); loadDraftTasks(); }} style={{ background: 'rgba(255,255,255,.18)', color: '#fff', border: '1px solid rgba(255,255,255,.35)', borderRadius: 8, padding: '5px 12px', fontSize: 12, cursor: 'pointer' }}>{t('session.btn')}</button>
         </div>
       </div>
 
@@ -859,23 +859,23 @@ export default function MobileCapturePage() {
                 )}
 
                 {/* 颜色标注（文档 10） */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{t('capture.colors')}</div>
+                <div className="ui-card" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div className="ui-section-title">{t('capture.colors')}</div>
                   <ColorSelector selected={productColors} onChange={setProductColors} options={websiteColors} colorHex={websiteColorHex} colorTexture={websiteColorTexture} />
                 </div>
 
                 {/* 库存录入（文档 11） */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{t('capture.inventory')}</div>
+                <div className="ui-card" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div className="ui-section-title">{t('capture.inventory')}</div>
                   <InventoryInput colors={productColors} rows={inventoryRows} onChange={setInventoryRows} />
                 </div>
 
                 {/* 手机壳点货：手机型号（按品牌分组，仅统计不同步网站） */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div className="ui-card" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {/* 产品固定颜色：点型号自动勾选 */}
-                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10, background: 'var(--bg-secondary)' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{t('capture.fixedColors')}</div>
+                      <div className="ui-section-title" style={{ marginBottom: 0 }}>{t('capture.fixedColors')}</div>
                       <button type="button" className="btn btn-sm" onClick={() => { setEditingFixedColors(fixedColors); setShowFixedColorsEditor(v => !v); }} style={{ fontSize: 11 }}>
                         {t('capture.fixedColorsEdit')}
                       </button>
@@ -907,7 +907,7 @@ export default function MobileCapturePage() {
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{t('capture.phoneModels')}</div>
+                    <div className="ui-section-title" style={{ marginBottom: 0 }}>{t('capture.phoneModels')}</div>
                     <button
                       type="button"
                       className="btn btn-sm"
@@ -927,14 +927,15 @@ export default function MobileCapturePage() {
                 </div>
 
                 {/* 备注（文档 12） */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{t('capture.notes')}</div>
+                <div className="ui-card" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div className="ui-section-title">{t('capture.notes')}</div>
                   <textarea
                     value={notes}
                     onChange={e => setNotes(e.target.value)}
                     placeholder={t('capture.notesPh')}
                     rows={3}
-                    style={{ padding: 10, borderRadius: 8, border: '1px solid var(--border-color)', fontSize: 14, background: 'var(--bg-secondary)', color: 'var(--text-primary)', resize: 'vertical' }}
+                    className="mobile-field"
+                    style={{ resize: 'vertical' }}
                   />
                   <AudioNoteRecorder captureId={capture.id} />
                 </div>
@@ -944,16 +945,16 @@ export default function MobileCapturePage() {
         )}
       </div>
 
-      {/* 底部固定操作栏（文档 7.1 / 14） */}
+      {/* 底部固定操作栏（文档 7.1 / 14，含安全区适配） */}
       {capture && !duplicatePrompt && (
-        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '10px 12px', background: 'var(--bg-primary)', borderTop: '1px solid var(--border-color)', display: 'flex', gap: 8, zIndex: 100 }}>
+        <div className="mobile-bottom-bar">
           <button type="button" onClick={handleDeleteCurrent} disabled={saving} aria-label={t('task.delete')} title={t('task.delete')}
-            style={{ flex: 0.5, padding: 12, color: '#dc2626', border: '1px solid #dc2626', background: 'var(--bg-primary)', borderRadius: 8, fontSize: 15, cursor: 'pointer' }}>
+            style={{ flex: 0.5, minHeight: 46, color: '#dc2626', border: '1px solid #dc2626', background: 'var(--bg-primary)', borderRadius: 10, fontSize: 15, cursor: 'pointer' }}>
             🗑
           </button>
-          <button type="button" className="btn" onClick={saveDraft} disabled={saving} style={{ flex: 1, padding: 12 }}>{t('capture.saveDraft')}</button>
-          <button type="button" className="btn" onClick={submit} disabled={saving} style={{ flex: 1, padding: 12 }}>{t('capture.submit')}</button>
-          <button type="button" className="btn btn-primary" onClick={saveAndNext} disabled={saving} style={{ flex: 1.4, padding: 12 }}>
+          <button type="button" className="btn mobile-btn" onClick={saveDraft} disabled={saving} style={{ flex: 1 }}>{t('capture.saveDraft')}</button>
+          <button type="button" className="btn mobile-btn" onClick={submit} disabled={saving} style={{ flex: 1 }}>{t('capture.submit')}</button>
+          <button type="button" className="btn btn-primary mobile-btn" onClick={saveAndNext} disabled={saving} style={{ flex: 1.4 }}>
             {saving ? t('common.loading') : t('capture.saveAndNext')}
           </button>
         </div>
@@ -1004,7 +1005,7 @@ export default function MobileCapturePage() {
 
 function MobileShell({ networkOk, children }: { networkOk: boolean; children: React.ReactNode }) {
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', color: 'var(--text-primary)', maxWidth: 480, margin: '0 auto', position: 'relative', paddingBottom: 30 }}>
+    <div className="mobile-safe-top" style={{ minHeight: '100vh', background: 'var(--bg-primary)', color: 'var(--text-primary)', maxWidth: 480, margin: '0 auto', position: 'relative', paddingBottom: 40 }}>
       <div style={{ position: 'sticky', top: 0, zIndex: 50, display: 'flex', justifyContent: 'flex-end', padding: '6px 12px 0', background: 'var(--bg-primary)' }}>
         <LangSwitch />
       </div>
