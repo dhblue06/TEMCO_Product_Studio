@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { mobileCaptureApi, settingsApi } from '../../services/api';
+import { useToast } from '../ui/ToastProvider';
 import '../Modal.css';
 
 interface Props {
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export function MobileCaptureAccessModal({ onClose, onOpenReview }: Props) {
+  const { success, error: toastError } = useToast();
   const [ips, setIps] = useState<string[]>([]);
   const [pinConfigured, setPinConfigured] = useState(false);
   const [newPin, setNewPin] = useState('');
@@ -40,9 +42,9 @@ export function MobileCaptureAccessModal({ onClose, onOpenReview }: Props) {
       await settingsApi.update('mobile_capture_pin', newPin.trim());
       setPinConfigured(!!newPin.trim());
       setNewPin('');
-      alert(newPin.trim() ? 'PIN 已设置' : 'PIN 已清除');
+      success(newPin.trim() ? 'PIN 已设置' : 'PIN 已清除');
     } catch (e: any) {
-      alert('保存失败: ' + e.message);
+      toastError('保存失败: ' + e.message);
     }
   };
 

@@ -5,6 +5,8 @@ import ImageViewerModal from './ImageViewerModal';
 import EditableSelect from './EditableSelect';
 import { prestashopApi } from '../services/api';
 import VariantEditPanel from './mobileCapture/VariantEditPanel';
+import { useToast } from './ui/ToastProvider';
+import { useConfirm } from './ui/ConfirmProvider';
 
 interface ProductDetailProps {
   reference: string | null;
@@ -29,6 +31,8 @@ const IMAGE_STATUS_LABELS: Record<string, string> = {
 };
 
 const ProductDetail: React.FC<ProductDetailProps> = ({ reference, refreshKey, onUpdated }) => {
+  const { success, error: toastError } = useToast();
+  const { confirm } = useConfirm();
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -276,7 +280,8 @@ const getSlots = (count: number) => {
 
   const handleDeleteImage = async (img: any) => {
     const name = img.original_name || img.originalName || `#${img.id}`;
-    if (!window.confirm(`确定删除图片 #${img.id}？本地文件也会一起删除。`)) return;
+    const ok = await confirm(`确定删除图片 #${img.id}？本地文件也会一起删除。`, { title: '删除图片', danger: true });
+    if (!ok) return;
     setSavingImageId(img.id); setMessage('');
     try {
       const res = await fetch(`/api/upload/image/${img.id}`, { method: 'DELETE' });
@@ -539,7 +544,8 @@ const getSlots = (count: number) => {
   const handleToggleActive = async () => {
     if (!reference || !product?.prestashop_id) return;
     const newActive = product.active === '0' ? '1' : '0';
-    if (!window.confirm(`确定${newActive === '1' ? '激活' : '停用'}此商品？`)) return;
+    const ok = await confirm(`确定${newActive === '1' ? '激活' : '停用'}此商品？`, { title: newActive === '1' ? '激活商品' : '停用商品' });
+    if (!ok) return;
     setTogglingActive(true);
     try {
       const res = await fetch(`/api/prestashop/toggle-active/${encodeURIComponent(reference)}`, { method: 'POST' });
@@ -598,7 +604,7 @@ const getSlots = (count: number) => {
           <button className="btn btn-sm" style={{ marginLeft: 4, cursor: "pointer" }} title="将旧图片复制到产品文件夹"
             onClick={(e) => { e.stopPropagation();
               fetch(`/api/upload/migrate-images/${encodeURIComponent(reference||"")}`, { method: "POST" })
-                .then(r => r.json()).then(d => { if (d.success) alert(d.message); }).catch(() => {});
+                .then(r => r.json()).then(d => { if (d.success) success(d.message); }).catch(() => {});
             }}>
             📦 整理图片
           </button>
@@ -606,7 +612,7 @@ const getSlots = (count: number) => {
             onClick={(e) => { e.stopPropagation();
               fetch(`/api/upload/verify-images/${encodeURIComponent(reference||"")}`, { method: "POST" })
                 .then(r => r.json()).then(d => {
-                  if (d.success) alert(`文件验证完成\n删除 ${d.data.deleted} 条失效记录\n保留 ${d.data.valid} 条有效记录`);
+                  if (d.success) success(`文件验证完成\n删除 ${d.data.deleted} 条失效记录\n保留 ${d.data.valid} 条有效记录`);
                   if (d.success && d.data.deleted > 0) window.location.reload();
                 }).catch(() => {});
             }}>
@@ -615,8 +621,9 @@ const getSlots = (count: number) => {
         <div style={{ display: 'flex', gap: 6 }}>
           <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>{saving ? '保存中...' : '💾 保存'}</button>
           <button className="btn btn-danger btn-sm" onClick={async () => {
-            if (!window.confirm(`确定删除 ${product.reference}？`)) return;
-            try { const r = await productsApi.delete(product.reference); if (r.success) onUpdated(); } catch (e: any) { alert(e.message); }
+            const ok = await confirm(`确定删除 ${product.reference}？`, { title: '删除商品', danger: true });
+            if (!ok) return;
+            try { const r = await productsApi.delete(product.reference); if (r.success) { success(`已删除 ${product.reference}`); onUpdated(); } } catch (e: any) { toastError(e.message); }
           }}>🗑 删除</button>
         </div>
       </div>

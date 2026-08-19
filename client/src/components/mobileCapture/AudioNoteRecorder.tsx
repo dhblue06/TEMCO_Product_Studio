@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { mobileCaptureApi } from '../../services/api';
 import { useI18n } from '../../i18n';
+import { useToast } from '../ui/ToastProvider';
 
 interface Props {
   captureId: number;
@@ -10,6 +11,7 @@ interface Props {
 
 export function AudioNoteRecorder({ captureId, onSaved }: Props) {
   const { t } = useI18n();
+  const { error: toastError } = useToast();
   const [recording, setRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -43,7 +45,7 @@ export function AudioNoteRecorder({ captureId, onSaved }: Props) {
         });
       }, 1000);
     } catch (e: any) {
-      alert(t('audio.noMic') + ': ' + e.message);
+      toastError(t('audio.noMic') + ': ' + e.message);
     }
   };
 
@@ -63,7 +65,7 @@ export function AudioNoteRecorder({ captureId, onSaved }: Props) {
         const res = await mobileCaptureApi.uploadAudioNote(captureId, blob, `note_${Date.now()}.webm`, duration);
         if (res.success && onSaved) onSaved(res.data);
       } catch (e: any) {
-        alert(t('audio.uploadFail') + ': ' + e.message);
+        toastError(t('audio.uploadFail') + ': ' + e.message);
       } finally {
         setSaving(false);
       }

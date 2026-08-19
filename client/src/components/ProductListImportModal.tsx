@@ -1,4 +1,6 @@
 import React, { useState, useRef } from 'react';
+import { useToast } from './ui/ToastProvider';
+import { useConfirm } from './ui/ConfirmProvider';
 
 interface ProductListImportModalProps {
   onClose: () => void;
@@ -16,6 +18,8 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 };
 
 const ProductListImportModal: React.FC<ProductListImportModalProps> = ({ onClose, onImported }) => {
+  const { error: toastError } = useToast();
+  const { confirm } = useConfirm();
   const [step, setStep] = useState<'upload' | 'result'>('upload');
   const [preview, setPreview] = useState<any>(null);
   const [batchId, setBatchId] = useState<number | null>(null);
@@ -67,7 +71,8 @@ const ProductListImportModal: React.FC<ProductListImportModalProps> = ({ onClose
   };
 
   const handleDeleteProduct = async (reference: string) => {
-    if (!window.confirm(`确定删除产品 ${reference}？此操作不可撤销。`)) return;
+    const ok = await confirm(`确定删除产品 ${reference}？此操作不可撤销。`, { title: '删除产品', danger: true });
+    if (!ok) return;
     try {
       const res = await fetch("/api/products/" + encodeURIComponent(reference), { method: "DELETE" });
       const d = await res.json();
@@ -75,6 +80,7 @@ const ProductListImportModal: React.FC<ProductListImportModalProps> = ({ onClose
         if (batchId) loadItems(batchId, statusFilter);
       } else {
         setError(d.error || "删除失败");
+        toastError(d.error || "删除失败");
       }
     } catch (err: any) {
       setError(err.message);

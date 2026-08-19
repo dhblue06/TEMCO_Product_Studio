@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { categoriesApi } from '../services/api';
+import { useConfirm } from '../components/ui/ConfirmProvider';
 
 interface CategoriesPageProps {
   onClose: () => void;
 }
 
 const CategoriesPage: React.FC<CategoriesPageProps> = ({ onClose }) => {
+  const { confirm } = useConfirm();
   const [tab, setTab] = useState<'categories' | 'images' | 'matching' | 'upload'>('categories');
   const [categories, setCategories] = useState<any[]>([]);
   const [images, setImages] = useState<any[]>([]);
@@ -493,7 +495,8 @@ const CategoriesPage: React.FC<CategoriesPageProps> = ({ onClose }) => {
               <div style={{ marginLeft: 'auto' }}>
                 <button className="btn btn-sm" style={{ color: '#ff4d4f' }}
                   onClick={async () => {
-                    if (!window.confirm('确定清空全部图片记录？注意：已确认的映射也会被清除。')) return;
+                    const ok = await confirm('确定清空全部图片记录？注意：已确认的映射也会被清除。', { title: '清空图片记录', danger: true });
+                    if (!ok) return;
                     try {
                       const res = await categoriesApi.clearImages();
                       showMessage(res.success ? `✅ ${res.message}` : `❌ ${res.error}`);

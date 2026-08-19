@@ -4,6 +4,8 @@ import { MobileCaptureImage } from '../../types/mobileCapture';
 import { roleLabel } from '../../services/mobileColors';
 import { mobileCaptureApi } from '../../services/api';
 import { useI18n } from '../../i18n';
+import { useToast } from '../ui/ToastProvider';
+import { useConfirm } from '../ui/ConfirmProvider';
 
 interface Props {
   image: MobileCaptureImage;
@@ -15,15 +17,18 @@ interface Props {
 
 export function CaptureImageCard({ image, imageUrl, onDeleted, onUpdated, canEdit = true }: Props) {
   const { t } = useI18n();
+  const { error: toastError } = useToast();
+  const { confirm } = useConfirm();
   const [showLarge, setShowLarge] = useState(false);
 
   const handleDelete = async () => {
-    if (!window.confirm(t('img.deleteConfirm'))) return;
+    const ok = await confirm(t('img.deleteConfirm'), { title: t('img.deleteTitle') || '删除照片', danger: true });
+    if (!ok) return;
     try {
       await mobileCaptureApi.deleteImage(image.id);
       onDeleted(image.id);
     } catch (e: any) {
-      alert(t('img.deleteFail') + ': ' + e.message);
+      toastError(t('img.deleteFail') + ': ' + e.message);
     }
   };
 

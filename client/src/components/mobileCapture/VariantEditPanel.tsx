@@ -2,6 +2,8 @@
 import React, { useEffect, useState } from 'react';
 import { prestashopApi, mobileCaptureApi } from '../../services/api';
 import { ColorSwatch, DEFAULT_COLOR_HEX } from './ColorSwatch';
+import { useToast } from '../ui/ToastProvider';
+import { useConfirm } from '../ui/ConfirmProvider';
 
 export interface PSCombination {
   id: number;
@@ -33,6 +35,8 @@ interface Props {
 }
 
 export function VariantEditPanel({ prestashopProductId, captureId, reference, ean13 }: Props) {
+  const { success, error: toastError, warning: toastWarning } = useToast();
+  const { confirm } = useConfirm();
   const [combinations, setCombinations] = useState<PSCombination[]>([]);
   const [optionValues, setOptionValues] = useState<PSOptionValue[]>([]);
   const [loading, setLoading] = useState(false);
@@ -105,7 +109,7 @@ export function VariantEditPanel({ prestashopProductId, captureId, reference, ea
   };
 
   const create = async () => {
-    if (newAttrs.length === 0) { alert('请选择至少一个属性值（颜色）'); return; }
+    if (newAttrs.length === 0) { toastWarning('请选择至少一个属性值（颜色）', { vibrate: true }); return; }
     setBusy(true);
     let ok = 0;
     const failMsgs: string[] = [];
@@ -126,7 +130,7 @@ export function VariantEditPanel({ prestashopProductId, captureId, reference, ea
         failMsgs.push(`${nameOf(attrId)}: ${e.message}`);
       }
     }
-    alert(`变体创建完成：成功 ${ok} 个${failMsgs.length ? `，失败 ${failMsgs.length} 个\n${failMsgs.join('\n')}` : ''}`);
+    success(`变体创建完成：成功 ${ok} 个${failMsgs.length ? `，失败 ${failMsgs.length} 个\n${failMsgs.join('\n')}` : ''}`, { duration: 8000 });
     setShowAdd(false);
     setNewAttrs([]);
     setNewRef(''); setNewEan(''); setNewQty(''); setNewPrice('');
@@ -154,33 +158,34 @@ export function VariantEditPanel({ prestashopProductId, captureId, reference, ea
         quantity: draft.quantity === '' ? null : Number(draft.quantity),
         price: draft.price === '' ? null : Number(draft.price),
       });
-      if (res.success) { alert('✅ 变体已更新'); setEditingId(null); load(); }
-      else alert(res.error || '更新失败');
-    } catch (e: any) { alert('更新失败: ' + e.message); }
+      if (res.success) { success('✅ 变体已更新'); setEditingId(null); load(); }
+      else toastError(res.error || '更新失败');
+    } catch (e: any) { toastError('更新失败: ' + e.message); }
     finally { setBusy(false); }
   };
 
   const remove = async (c: PSCombination) => {
-    if (!window.confirm(`删除变体「${colorName(c.attributeValueIds)}」（ID ${c.id}）？此操作会同步删除网站上的组合。`)) return;
+    const ok = await confirm(`删除变体「${colorName(c.attributeValueIds)}」（ID ${c.id}）？此操作会同步删除网站上的组合。`, { title: '删除变体', danger: true });
+    if (!ok) return;
     setBusy(true);
     try {
       const res = await prestashopApi.deleteCombination(c.id);
-      if (res.success) { alert('✅ 变体已删除'); load(); }
-      else alert(res.error || '删除失败');
-    } catch (e: any) { alert('删除失败: ' + e.message); }
+      if (res.success) { success('✅ 变体已删除'); load(); }
+      else toastError(res.error || '删除失败');
+    } catch (e: any) { toastError('删除失败: ' + e.message); }
     finally { setBusy(false); }
   };
 
   // 单独保存某个变体的库存（同步网站 stock_available）
   const saveStock = async (c: PSCombination) => {
     const qty = stockDraft[c.id];
-    if (qty === undefined || qty === '') { alert('请输入库存数量'); return; }
+    if (qty === undefined || qty === '') { toastWarning('请输入库存数量'); return; }
     setStockSaving(c.id);
     try {
       const res = await prestashopApi.updateCombination(c.id, { productId: prestashopProductId, quantity: Number(qty) });
-      if (res.success) { alert(`✅ ${colorName(c.attributeValueIds)} 库存已更新为 ${Number(qty)}`); setStockDraft(d => { const n = { ...d }; delete n[c.id]; return n; }); load(); }
-      else alert(res.error || '库存更新失败');
-    } catch (e: any) { alert('库存更新失败: ' + e.message); }
+      if (res.success) { success(`✅ ${colorName(c.attributeValueIds)} 库存已更新为 ${Number(qty)}`); setStockDraft(d => { const n = { ...d }; delete n[c.id]; return n; }); load(); }
+      else toastError(res.error || '库存更新失败');
+    } catch (e: any) { toastError('库存更新失败: ' + e.message); }
     finally { setStockSaving(null); }
   };
 
@@ -202,13 +207,14 @@ export function VariantEditPanel({ prestashopProductId, captureId, reference, ea
               className="btn btn-sm"
               disabled={syncingVariants}
               onClick={async () => {
-                if (!window.confirm('把采集任务标注的颜色+库存同步为网站变体？\n（已有颜色更新库存，新颜色创建变体）')) return;
+                const ok = await confirm('把采集任务标注的颜色+库存同步为网站变体？\n（已有颜色更新库存，新颜色创建变体）', { title: '同步变体到网站' });
+                if (!ok) return;
                 setSyncingVariants(true);
                 try {
                   const res = await mobileCaptureApi.syncVariantsToWebsite(captureId);
-                  if (res.success) { alert(res.message || '✅ 变体已同步'); load(); }
-                  else alert(res.error || '同步失败');
-                } catch (e: any) { alert('同步失败: ' + e.message); }
+                  if (res.success) { success(res.message || '✅ 变体已同步'); load(); }
+                  else toastError(res.error || '同步失败');
+                } catch (e: any) { toastError('同步失败: ' + e.message); }
                 finally { setSyncingVariants(false); }
               }}
               style={{ background: 'var(--accent)', color: '#fff' }}

@@ -1,6 +1,7 @@
 // 采集会话开始页（文档 8.1：操作员 / 设备 / 区域 / PIN）
 import React, { useState } from 'react';
 import { useI18n, LangSwitch } from '../../i18n';
+import { useToast } from '../ui/ToastProvider';
 
 interface Props {
   loading: boolean;
@@ -12,6 +13,7 @@ interface Props {
 
 export function SessionStart({ loading, error, onStart, onContinueSession, hasActiveSession }: Props) {
   const { t } = useI18n();
+  const { warning: toastWarning } = useToast();
   const [pin, setPin] = useState('');
   const [operatorName, setOperatorName] = useState('');
   const [deviceName, setDeviceName] = useState('');
@@ -19,7 +21,7 @@ export function SessionStart({ loading, error, onStart, onContinueSession, hasAc
 
   const submit = async () => {
     if (!operatorName.trim() || !deviceName.trim()) {
-      alert(t('login.operator') + ' / ' + t('login.device') + ' *');
+      toastWarning(t('login.operator') + ' / ' + t('login.device') + ' *', { vibrate: true });
       return;
     }
     await onStart(pin.trim(), operatorName.trim(), deviceName.trim(), areaCode.trim());

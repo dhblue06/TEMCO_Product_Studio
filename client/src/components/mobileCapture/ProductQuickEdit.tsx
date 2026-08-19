@@ -1,6 +1,8 @@
 // 产品属性快捷编辑（与产品属性编辑页面同 API：改属性 + 传产品图片）
 import React, { useEffect, useState } from 'react';
 import { productsApi, prestashopApi } from '../../services/api';
+import { useToast } from '../ui/ToastProvider';
+import { useConfirm } from '../ui/ConfirmProvider';
 
 interface Props {
   reference: string;
@@ -23,6 +25,8 @@ function slotLabel(slot: string): string {
 }
 
 export function ProductQuickEdit({ reference, onChanged }: Props) {
+  const { success, error: toastError } = useToast();
+  const { confirm } = useConfirm();
   const [product, setProduct] = useState<any>(null);
   const [images, setImages] = useState<any[]>([]);
   const [form, setForm] = useState<Record<string, string>>({});
@@ -61,7 +65,7 @@ export function ProductQuickEdit({ reference, onChanged }: Props) {
       const imgRes = await fetch(`/api/upload/product/${encodeURIComponent(reference)}`).then(r => r.json());
       if (imgRes.success) setImages(imgRes.data || []);
     } catch (e: any) {
-      alert('加载产品失败: ' + e.message);
+      toastError('加载产品失败: ' + e.message);
     } finally {
       setLoading(false);
     }
@@ -84,11 +88,11 @@ export function ProductQuickEdit({ reference, onChanged }: Props) {
         wholesale_price: form.wholesale_price === '' ? null : Number(form.wholesale_price),
         quantity: form.quantity === '' ? null : Number(form.quantity),
       });
-      alert('✅ 产品属性已保存');
+      success('✅ 产品属性已保存');
       load();
       onChanged();
     } catch (e: any) {
-      alert('保存失败: ' + e.message);
+      toastError('保存失败: ' + e.message);
     } finally {
       setSaving(false);
     }
@@ -106,26 +110,27 @@ export function ProductQuickEdit({ reference, onChanged }: Props) {
     try {
       const res = await fetch(`/api/upload/upload-batch/${encodeURIComponent(reference)}`, { method: 'POST', body: fd }).then(r => r.json());
       if (res.success) {
-        alert(`✅ ${slotLabel(slotRole)}上传成功（${res.message || ''}）`);
+        success(`✅ ${slotLabel(slotRole)}上传成功（${res.message || ''}）`);
         load();
         onChanged();
       } else {
-        alert(res.error || '上传失败');
+        toastError(res.error || '上传失败');
       }
     } catch (e: any) {
-      alert('上传失败: ' + e.message);
+      toastError('上传失败: ' + e.message);
     } finally {
       setUploadingSlot('');
     }
   };
 
   const removeImage = async (img: any) => {
-    if (!window.confirm(`删除产品图片「${img.filename || img.local_path || ''}」？`)) return;
+    const ok = await confirm(`删除产品图片「${img.filename || img.local_path || ''}」？`, { title: '删除图片', danger: true });
+    if (!ok) return;
     try {
       await fetch(`/api/upload/image/${img.id}`, { method: 'DELETE' });
       load();
     } catch (e: any) {
-      alert('删除失败: ' + e.message);
+      toastError('删除失败: ' + e.message);
     }
   };
 
@@ -182,13 +187,14 @@ export function ProductQuickEdit({ reference, onChanged }: Props) {
           className="btn btn-sm"
           disabled={syncingImages}
           onClick={async () => {
-            if (!window.confirm('把当前产品槽位图上传到 PrestaShop 网站？')) return;
+            const ok = await confirm('把当前产品槽位图上传到 PrestaShop 网站？', { title: '同步图片到网站' });
+            if (!ok) return;
             setSyncingImages(true);
             try {
               const res = await prestashopApi.syncImages(reference);
-              if (res.success) { alert(res.error ? `⚠️ ${res.error}` : `✅ 图片同步完成：成功 ${res.successCount ?? 0} 张${(res.failedCount ?? 0) > 0 ? `，失败 ${res.failedCount}` : ''}`); load(); }
-              else alert(res.error || '同步失败');
-            } catch (e: any) { alert('同步失败: ' + e.message); }
+              if (res.success) { success(res.error ? `⚠️ ${res.error}` : `✅ 图片同步完成：成功 ${res.successCount ?? 0} 张${(res.failedCount ?? 0) > 0 ? `，失败 ${res.failedCount}` : ''}`); load(); }
+              else toastError(res.error || '同步失败');
+            } catch (e: any) { toastError('同步失败: ' + e.message); }
             finally { setSyncingImages(false); }
           }}
         >

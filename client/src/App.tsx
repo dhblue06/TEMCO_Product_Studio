@@ -21,8 +21,12 @@ import MobileCaptureAccessModal from './components/mobileCapture/MobileCaptureAc
 import MobileCaptureReviewPage from './pages/MobileCaptureReviewPage';
 import { productsApi } from './services/api';
 import { ProductListItem, Pagination } from './types';
+import { useToast } from './components/ui/ToastProvider';
+import { useConfirm } from './components/ui/ConfirmProvider';
 
 function App() {
+  const { success, error: toastError, info: toastInfo } = useToast();
+  const { confirm } = useConfirm();
   const [products, setProducts] = useState<ProductListItem[]>([]);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, pageSize: 50, total: 0, totalPages: 0 });
   const [loading, setLoading] = useState(false);
@@ -149,16 +153,18 @@ function App() {
   const handleBatchDelete = async () => {
     if (selectedRefs.size === 0) return;
     const refs = Array.from(selectedRefs);
-    if (!window.confirm(`确定删除选中的 ${refs.length} 个商品？此操作不可撤销。`)) return;
+    const ok = await confirm(`确定删除选中的 ${refs.length} 个商品？此操作不可撤销。`, { title: '批量删除', danger: true });
+    if (!ok) return;
     try {
       const res = await productsApi.batchDelete(refs);
       if (res.success) {
+        success(`已删除 ${refs.length} 个商品`);
         fetchProducts();
         setSelectedRefs(new Set());
         setSelectedRef(null);
       }
     } catch (err: any) {
-      alert('批量删除失败: ' + err.message);
+      toastError('批量删除失败: ' + err.message);
     }
   };
 
@@ -215,18 +221,18 @@ function App() {
           setScanProgress(null);
           setScanMatchedRefs(refs);
           fetchProducts();
-          alert(`${data.message}\n\n匹配 ${data.data.matched} 个产品\n未找到产品 ${data.data.notFound} 个\n跳过 ${data.data.skipped} 个\n\n📤 图片同步结果：成功 ${synced} 个，失败 ${failed} 个`);
+          toastInfo(`${data.message}\n\n匹配 ${data.data.matched} 个产品\n未找到产品 ${data.data.notFound} 个\n跳过 ${data.data.skipped} 个\n\n📤 图片同步结果：成功 ${synced} 个，失败 ${failed} 个`, { duration: 8000 });
         } else {
           setScanProgress(null);
-          alert(`${data.message}\n\n匹配 ${data.data.matched} 个产品\n未找到产品 ${data.data.notFound} 个\n跳过 ${data.data.skipped} 个`);
+          toastInfo(`${data.message}\n\n匹配 ${data.data.matched} 个产品\n未找到产品 ${data.data.notFound} 个\n跳过 ${data.data.skipped} 个`, { duration: 8000 });
         }
       } else {
         setScanProgress(null);
-        alert('扫描失败: ' + (data.error || '未知错误'));
+        toastError('扫描失败: ' + (data.error || '未知错误'));
       }
     } catch (err: any) {
       setScanProgress(null);
-      alert('扫描失败: ' + err.message);
+      toastError('扫描失败: ' + err.message);
     }
   };
 
@@ -235,12 +241,12 @@ function App() {
       const res = await fetch('/api/upload/batch-rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
       const data = await res.json();
       if (data.success) {
-        alert(data.message + (data.data?.results?.length > 0 ? '\n\n' + data.data.results.slice(0, 10).map((r: any) => `${r.status === 'renamed' ? '✅' : '⏭'} ${r.old} → ${r.new}`).join('\n') : ''));
+        success(data.message + (data.data?.results?.length > 0 ? `\n\n${data.data.results.slice(0, 10).map((r: any) => `${r.status === 'renamed' ? '✅' : '⏭'} ${r.old} → ${r.new}`).join('\n')}` : ''));
       } else {
-        alert('重命名失败: ' + (data.error || '未知错误'));
+        toastError('重命名失败: ' + (data.error || '未知错误'));
       }
     } catch (err: any) {
-      alert('重命名失败: ' + err.message);
+      toastError('重命名失败: ' + err.message);
     }
   };
 
@@ -259,12 +265,12 @@ function App() {
         const detailText = details.length > 0
           ? '\n' + details.slice(0, 10).map((d: any) => `📂 ${d.reference}: ${d.copied}张`).join('\n')
           : data.data?.totalCopied > 0 ? `\n共 ${data.data.totalCopied} 张未匹配图片已整理` : '';
-        alert(data.message + detailText);
+        success(data.message + detailText, { duration: 8000 });
       } else {
-        alert('整理失败: ' + (data.error || '未知错误'));
+        toastError('整理失败: ' + (data.error || '未知错误'));
       }
     } catch (err: any) {
-      alert('整理失败: ' + err.message);
+      toastError('整理失败: ' + err.message);
     }
   };
 
@@ -295,17 +301,18 @@ function App() {
         onScanFolderClick={handleScanFolder}
         onOrganizeImagesClick={handleOrganizeImages}
         onBatchRenameClick={handleBatchRename}
-        onAddProductClick={() => {
+        onAddProductClick={async () => {
           const ref = prompt('请输入新商品的 Reference:');
           if (ref && ref.trim()) {
-            fetch('/api/products', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ reference: ref.trim() }),
-            }).then(r => r.json()).then(d => {
-              if (d.success) { fetchProducts(); setRefreshDetail(n => n + 1); alert(`✅ 商品 ${ref} 创建成功`); }
-              else { alert('❌ ' + (d.error || '创建失败')); }
-            }).catch(e => alert('❌ ' + e.message));
+            try {
+              const d = await fetch('/api/products', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reference: ref.trim() }),
+              }).then(r => r.json());
+              if (d.success) { fetchProducts(); setRefreshDetail(n => n + 1); success(`✅ 商品 ${ref} 创建成功`); }
+              else { toastError('❌ ' + (d.error || '创建失败')); }
+            } catch (e: any) { toastError('❌ ' + e.message); }
           }
         }}
         scanResultCount={scanMatchedRefs?.length}
@@ -359,10 +366,12 @@ function App() {
             </span>
             <button className="btn btn-sm" style={{ fontSize: 11 }}
               onClick={async () => {
-                if (!window.confirm('同步所有已上传PrestaShop商品的价格？')) return;
+                const ok = await confirm('同步所有已上传 PrestaShop 商品的价格？', { title: '同步价格', danger: false });
+                if (!ok) return;
                 const res = await fetch('/api/prestashop/sync-all-prices', { method: 'POST' });
                 const d = await res.json();
-                alert(d.message || (d.success ? `成功同步 ${d.data?.updated||0} 个商品` : '同步失败'));
+                if (d.success) success(d.message || `成功同步 ${d.data?.updated || 0} 个商品`);
+                else toastError(d.message || '同步失败');
               }}>
               💶 同步价格
             </button>

@@ -19,6 +19,8 @@ import AudioNoteRecorder from '../components/mobileCapture/AudioNoteRecorder';
 import { ProductMatchCandidate, CaptureStatusInfo, MatchResult, MobileCapture, MobileCaptureImage, MobileSession } from '../types/mobileCapture';
 import { IMAGE_ROLES, roleLabel } from '../services/mobileColors';
 import { prestashopApi } from '../services/api';
+import { useToast } from '../components/ui/ToastProvider';
+import { useConfirm } from '../components/ui/ConfirmProvider';
 
 type Tab = 'scan' | 'search';
 
@@ -30,6 +32,8 @@ interface PendingFile {
 
 export default function MobileCapturePage() {
   const { t } = useI18n();
+  const { toast, success, error: toastError, info: toastInfo, warning: toastWarning } = useToast();
+  const { confirm } = useConfirm();
   const { auth, session, error, login, logout, startSession, completeSession, cancelSession, setCurrentSession } = useMobileCaptureSession();
 
   // 会话选择状态
@@ -140,36 +144,38 @@ export default function MobileCapturePage() {
 
   // 删除未提交任务（草稿，删除后不可恢复）
   const handleDeleteDraft = useCallback(async (taskId: number) => {
-    if (!window.confirm(t('task.deleteConfirm'))) return;
+    const ok = await confirm(t('task.deleteConfirm'), { title: t('task.deleteTitle') || '删除任务', danger: true });
+    if (!ok) return;
     try {
       const res = await mobileCaptureApi.deleteCapture(taskId);
       if (res.success) {
-        alert(t('task.deleted'));
+        success(t('task.deleted'), { vibrate: true });
         loadDraftTasks();
       } else {
-        alert(res.error || t('task.deleteFail'));
+        toastError(res.error || t('task.deleteFail'));
       }
     } catch (e: any) {
-      alert(t('task.deleteFail') + ': ' + e.message);
+      toastError(t('task.deleteFail') + ': ' + e.message);
     }
-  }, [t, loadDraftTasks]);
+  }, [t, loadDraftTasks, confirm, success, toastError]);
 
   // 删除当前正在采集的任务
   const handleDeleteCurrent = async () => {
     if (!capture) return;
-    if (!window.confirm(t('task.deleteCurrentConfirm'))) return;
+    const ok = await confirm(t('task.deleteCurrentConfirm'), { title: t('task.deleteTitle') || '删除任务', danger: true });
+    if (!ok) return;
     try {
       const res = await mobileCaptureApi.deleteCapture(capture.id);
       if (res.success) {
-        alert(t('task.deleted'));
+        success(t('task.deleted'), { vibrate: true });
         resetCurrent();
         setShowSessionPicker(true);
         loadDraftTasks();
       } else {
-        alert(res.error || t('task.deleteFail'));
+        toastError(res.error || t('task.deleteFail'));
       }
     } catch (e: any) {
-      alert(t('task.deleteFail') + ': ' + e.message);
+      toastError(t('task.deleteFail') + ': ' + e.message);
     }
   };
 
@@ -179,18 +185,19 @@ export default function MobileCapturePage() {
     const msg = n > 0
       ? t('session.deleteConfirmWithTasks').replace('{code}', s.session_code).replace('{n}', String(n))
       : t('session.deleteConfirm').replace('{code}', s.session_code);
-    if (!window.confirm(msg)) return;
+    const ok = await confirm(msg, { title: t('session.deleteTitle') || '删除会话', danger: true });
+    if (!ok) return;
     try {
       const res = await mobileCaptureApi.deleteSession(s.id);
       if (res.success) {
-        alert(t('session.deleted'));
+        success(t('session.deleted'), { vibrate: true });
         loadSessions();
         loadDraftTasks();
       } else {
-        alert(res.error || t('session.deleteFail'));
+        toastError(res.error || t('session.deleteFail'));
       }
     } catch (e: any) {
-      alert(t('session.deleteFail') + ': ' + e.message);
+      toastError(t('session.deleteFail') + ': ' + e.message);
     }
   };
 
@@ -255,11 +262,12 @@ export default function MobileCapturePage() {
       if (res.success) {
         setFixedColors(colors);
         setShowFixedColorsEditor(false);
+        success(t('alert.saved') || '已保存', { vibrate: true });
       } else {
-        alert(res.error || t('alert.saveFixedFail'));
+        toastError(res.error || t('alert.saveFixedFail'));
       }
     } catch (e: any) {
-      alert(t('alert.saveFixedFail') + ': ' + e.message);
+      toastError(t('alert.saveFixedFail') + ': ' + e.message);
     } finally {
       setSavingFixedColors(false);
     }
@@ -285,8 +293,9 @@ export default function MobileCapturePage() {
         } else if (res.data.product.lastCapture) {
           // 已采集过（已审核/已同步）→ 提示后确认是否新建
           const last = res.data.product.lastCapture;
-          const ok = window.confirm(
-            t('alert.alreadyCaptured').replace('{st}', last.status).replace('{tm}', (last.createdAt || '').slice(0, 16).replace('T', ' '))
+          const ok = await confirm(
+            t('alert.alreadyCaptured').replace('{st}', last.status).replace('{tm}', (last.createdAt || '').slice(0, 16).replace('T', ' ')),
+            { title: t('alert.alreadyCapturedTitle') || '重新采集' }
           );
           if (ok) await createNewCapture(c);
           else resetCurrent();
@@ -295,13 +304,14 @@ export default function MobileCapturePage() {
         }
       }
     } catch (e: any) {
-      alert(t('capture.loadFail') + ': ' + e.message);
+      toastError(t('capture.loadFail') + ': ' + e.message);
     }
-  }, [session]); // 依赖 session：闭包需使用当前会话
+    // 注意：createNewCapture / resetCurrent 在调用时解析（前向引用），不列入依赖数组
+  }, [session, t, confirm, toastError]); // 依赖 session：闭包需使用当前会话
 
   // 创建新采集任务
   const createNewCapture = useCallback(async (c: ProductMatchCandidate) => {
-    if (!session) { alert(t('alert.needSession')); return null; }
+    if (!session) { toastWarning(t('alert.needSession'), { vibrate: true }); return null; }
     setLoading(true);
     try {
       const res = await mobileCaptureApi.createCapture({
@@ -325,15 +335,15 @@ export default function MobileCapturePage() {
         setDuplicatePrompt(res.data);
         return null;
       }
-      alert(res.error || t('alert.createFail'));
+      toastError(res.error || t('alert.createFail'));
       return null;
     } catch (e: any) {
-      alert(t('alert.createTaskFail') + ': ' + e.message);
+      toastError(t('alert.createTaskFail') + ': ' + e.message);
       return null;
     } finally {
       setLoading(false);
     }
-  }, [session]);
+  }, [session, t, toastError]);
 
   // 继续原任务（8.5）
   const continueExisting = useCallback(async (captureId: number) => {
@@ -380,7 +390,7 @@ export default function MobileCapturePage() {
         } catch { setSelectedModels([]); }
       }
     } catch (e: any) {
-      alert(t('alert.loadTaskFail') + ': ' + e.message);
+      toastError(t('alert.loadTaskFail') + ': ' + e.message);
     } finally {
       setLoading(false);
     }
@@ -408,7 +418,8 @@ export default function MobileCapturePage() {
     const pf = pendingFiles.find(p => p.id === uploadTarget.fileId);
     if (!pf) { setUploadTarget(null); return; }
     const queueId = pf.id;
-    setUploadQueue(prev => [...prev, { id: queueId, filename: pf.file.name, role: uploadTarget.role, status: 'uploading', previewUrl: pf.previewUrl }]);
+    // 保留 file 引用：失败后可自动/手动重试（成功或取消时释放）
+    setUploadQueue(prev => [...prev, { id: queueId, filename: pf.file.name, role: uploadTarget.role, status: 'uploading', previewUrl: pf.previewUrl, file: pf.file }]);
     setPendingFiles(prev => prev.filter(p => p.id !== queueId));
     setUploadTarget(null);
     try {
@@ -418,9 +429,9 @@ export default function MobileCapturePage() {
         sequence: images.length + 1,
       });
       if (res.success) {
-        setUploadQueue(prev => prev.map(q => q.id === queueId ? { ...q, status: 'done' } : q));
+        setUploadQueue(prev => prev.map(q => q.id === queueId ? { ...q, status: 'done', file: undefined } : q));
         if (res.duplicate) {
-          alert(t('alert.dupPhoto'));
+          toastWarning(t('alert.dupPhoto'));
         } else {
           setImages(prev => [...prev, res.data]);
           // 若图片带颜色，同步到产品颜色池
@@ -436,13 +447,34 @@ export default function MobileCapturePage() {
     }
   };
 
-  const retryUpload = (id: string) => {
+  /** 真正重试失败的上传（文件对象保留在队列里，无需重新拍照） */
+  const retryUpload = async (id: string) => {
+    if (!capture) return;
     const item = uploadQueue.find(q => q.id === id);
-    if (!item) return;
-    const pf = pendingFiles.find(p => p.id === id);
-    // 文件对象已不在 pendingFiles，重新走上传逻辑需要文件对象——此处仅提示
-    alert(t('alert.retakePhoto'));
-    setUploadQueue(prev => prev.filter(q => q.id !== id));
+    if (!item || !item.file) {
+      toastInfo(t('alert.retakePhoto'));
+      setUploadQueue(prev => prev.filter(q => q.id !== id));
+      return;
+    }
+    setUploadQueue(prev => prev.map(q => q.id === id ? { ...q, status: 'uploading', error: undefined } : q));
+    try {
+      const res = await mobileCaptureApi.uploadImage(capture.id, item.file!, {
+        role: item.role,
+        colors: [],
+        sequence: images.length + 1,
+      });
+      if (res.success) {
+        setUploadQueue(prev => prev.map(q => q.id === id ? { ...q, status: 'done', file: undefined } : q));
+        if (res.duplicate) toastWarning(t('alert.dupPhoto'));
+        else setImages(prev => [...prev, res.data]);
+      } else {
+        setUploadQueue(prev => prev.map(q => q.id === id ? { ...q, status: 'failed', error: res.error || t('alert.uploadFail') } : q));
+        toastError(t('alert.uploadFail'), { vibrate: true });
+      }
+    } catch (e: any) {
+      setUploadQueue(prev => prev.map(q => q.id === id ? { ...q, status: 'failed', error: e.message } : q));
+      toastError(t('alert.uploadFail') + ': ' + e.message, { vibrate: true });
+    }
   };
 
   // === 保存 ===
@@ -457,7 +489,7 @@ export default function MobileCapturePage() {
       await mobileCaptureApi.savePhoneModels(capture.id, selectedModels.map(m => ({ brand: '', model: m.model, colors: m.colors })));
       return true;
     } catch (e: any) {
-      alert(t('alert.saveFail') + ': ' + e.message);
+      toastError(t('alert.saveFail') + ': ' + e.message);
       return false;
     } finally {
       setSaving(false);
@@ -471,14 +503,14 @@ export default function MobileCapturePage() {
       const status = captureStatus?.activeCapture?.capture_status;
       if (status && status !== 'draft') {
         const r = await mobileCaptureApi.reopenCapture(capture.id, session?.id);
-        if (!r.success) { alert(r.message || t('alert.reopenFailMsg')); return false; }
+        if (!r.success) { toastError(r.message || t('alert.reopenFailMsg')); return false; }
         // 刷新本地状态（已重新打开为 draft）
         const st = await mobileCaptureApi.getCaptureStatus(capture.product_id);
         if (st.success) setCaptureStatus(st.data);
       }
       return true;
     } catch (e: any) {
-      alert(t('alert.reopenFail') + ': ' + e.message);
+      toastError(t('alert.reopenFail') + ': ' + e.message);
       return false;
     }
   };
@@ -488,18 +520,19 @@ export default function MobileCapturePage() {
     if (!await ensureDraft()) return;
     if (!await saveDraft()) return;
     if (images.length === 0) {
-      if (!window.confirm(t('capture.noPhotoConfirm'))) return;
+      const ok = await confirm(t('capture.noPhotoConfirm'), { title: t('capture.noPhotoTitle') || '提交确认', danger: false });
+      if (!ok) return;
     }
     try {
       const res = await mobileCaptureApi.submitCapture(capture.id);
       if (res.success) {
-        alert(t('alert.submitted'));
+        success(t('alert.submitted'), { vibrate: true });
         resetCurrent();
       } else {
-        alert(res.message || t('capture.submitFail'));
+        toastError(res.message || t('capture.submitFail'));
       }
     } catch (e: any) {
-      alert(t('capture.submitFail') + ': ' + e.message);
+      toastError(t('capture.submitFail') + ': ' + e.message);
     }
   };
 
@@ -509,18 +542,19 @@ export default function MobileCapturePage() {
     if (!await ensureDraft()) return;
     if (!await saveDraft()) return;
     if (images.length === 0) {
-      alert(t('alert.needPhoto'));
+      toastWarning(t('alert.needPhoto'), { vibrate: true });
       return;
     }
     try {
       const res = await mobileCaptureApi.submitCapture(capture.id);
       if (res.success) {
+        success(t('alert.submitted'), { vibrate: true });
         resetCurrent();
       } else {
-        alert(res.message || t('capture.submitFail'));
+        toastError(res.message || t('capture.submitFail'));
       }
     } catch (e: any) {
-      alert(t('capture.submitFail') + ': ' + e.message);
+      toastError(t('capture.submitFail') + ': ' + e.message);
     }
   };
 
@@ -720,14 +754,14 @@ export default function MobileCapturePage() {
                   } else if (res.success && res.data.candidates?.length === 1) {
                     handleSelectProduct(res.data.candidates[0]);
                   } else if (res.success && res.data.candidates?.length > 1) {
-                    alert(t('capture.multiMatch'));
+                    toastWarning(t('capture.multiMatch'), { vibrate: true });
                     setTab('search');
                   } else {
                     // 未找到 → 弹新增产品表单（扫码自动填条形码）
                     setNewProductPrefill({ ean13: code });
                     setShowNewProduct(true);
                   }
-                }).catch(e => alert(t('capture.queryFail') + ': ' + e.message));
+                }).catch(e => toastError(t('capture.queryFail') + ': ' + e.message));
               }} />
             ) : (
               <ProductSearch
@@ -736,7 +770,7 @@ export default function MobileCapturePage() {
                   mobileCaptureApi.searchProduct(code).then(res => {
                     if (res.success && res.data.match) handleSelectProduct(res.data.match, res.data);
                     else if (res.success && res.data.candidates?.length > 0) {
-                      alert(t('capture.pickFromCandidates'));
+                      toastInfo(t('capture.pickFromCandidates'));
                     } else {
                       setNewProductPrefill({ ean13: code });
                       setShowNewProduct(true);
@@ -958,7 +992,7 @@ export default function MobileCapturePage() {
             setCaptureStatus(null);
             setShowNewProduct(false);
             setNewProductPrefill({});
-            alert(t('capture.addedAlert').replace('{ref}', cand.reference));
+            success(t('capture.addedAlert').replace('{ref}', cand.reference), { vibrate: true });
           }}
         />
       )}
@@ -1065,9 +1099,10 @@ function NewProductModal({ prefill, websiteColors, colorHex, colorTexture, sessi
   const [colors, setColors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const { t } = useI18n();
+  const { error: toastError, warning: toastWarning, success } = useToast();
 
   const submit = async () => {
-    if (!name.trim()) { alert(t('new.fillName')); return; }
+    if (!name.trim()) { toastWarning(t('new.fillName'), { vibrate: true }); return; }
     setSaving(true);
     try {
       const res = await mobileCaptureApi.createMobileProduct({
@@ -1077,7 +1112,7 @@ function NewProductModal({ prefill, websiteColors, colorHex, colorTexture, sessi
         reference: reference.trim(),
         price: price ? parseFloat(price) : null,
       });
-      if (!res.success) { alert(res.error || t('new.fail')); return; }
+      if (!res.success) { toastError(res.error || t('new.fail')); return; }
       const product = res.data;
       const capRes = await mobileCaptureApi.createCapture({
         sessionId,
@@ -1089,7 +1124,7 @@ function NewProductModal({ prefill, websiteColors, colorHex, colorTexture, sessi
         model: product.model,
         colors,
       });
-      if (!capRes.success) { alert(capRes.error || t('alert.createTaskFail')); return; }
+      if (!capRes.success) { toastError(capRes.error || t('alert.createTaskFail')); return; }
       const cand: ProductMatchCandidate = {
         productId: product.id,
         reference: product.reference,
@@ -1106,7 +1141,7 @@ function NewProductModal({ prefill, websiteColors, colorHex, colorTexture, sessi
       };
       onCreated(capRes.data, cand, colors);
     } catch (e: any) {
-      alert(t('new.fail') + ': ' + e.message);
+      toastError(t('new.fail') + ': ' + e.message);
     } finally {
       setSaving(false);
     }

@@ -1,5 +1,47 @@
 const API_BASE = '/api';
 
+/** 延迟等待（毫秒） */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * 带重试的请求：网络错误/5xx 时自动重试（指数退避）。
+ * 用途：弱网环境下图片上传等大请求的自动恢复。
+ * 4xx（业务错误）不重试——重试无意义。
+ */
+async function requestWithRetry<T>(endpoint: string, options: RequestInit, retries = 2): Promise<T> {
+  const url = `${API_BASE}${endpoint}`;
+  const isFormData = options?.body instanceof FormData;
+  const headers = {
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+    ...(options?.headers || {}),
+  };
+
+  let lastErr: any;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    let fatal = false; // 4xx 业务错误：不再重试
+    try {
+      const response = await fetch(url, { ...options, headers });
+      if (response.ok) return response.json();
+      const error = await response.json().catch(() => ({ error: response.statusText }));
+      const msg = error.error || `HTTP ${response.status}`;
+      if (response.status >= 400 && response.status < 500) {
+        fatal = true;
+        throw new Error(msg);
+      }
+      lastErr = new Error(msg); // 5xx → 记录，稍后重试
+    } catch (e: any) {
+      if (fatal) throw e; // 4xx：直接抛给调用方
+      lastErr = e; // 网络错误（TypeError）或 5xx：重试
+    }
+    if (attempt < retries) {
+      await sleep(600 * Math.pow(2, attempt)); // 0.6s → 1.2s
+    }
+  }
+  throw lastErr || new Error('请求失败');
+}
+
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${endpoint}`;
   const response = await fetch(url, {
@@ -349,6 +391,40 @@ async function authRequest<T>(endpoint: string, options?: RequestInit): Promise<
   return response.json();
 }
 
+/**
+ * 带鉴权 + 自动重试的请求（弱网图片上传用）：
+ * 网络错误/5xx 重试 2 次（指数退避）；4xx 与 401 不重试。
+ */
+async function authRequestWithRetry<T>(endpoint: string, options?: RequestInit, retries = 2): Promise<T> {
+  let lastErr: any;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    let fatal = false;
+    try {
+      const response = await authFetch(endpoint, options);
+      if (response.ok) return response.json();
+      const error = await response.json().catch(() => ({ error: response.statusText }));
+      const msg = error.error || `HTTP ${response.status}`;
+      if (response.status === 401) {
+        setMobileToken(null);
+        window.dispatchEvent(new CustomEvent('mobile-auth-expired'));
+        throw new Error(msg);
+      }
+      if (response.status >= 400 && response.status < 500) {
+        fatal = true;
+        throw new Error(msg);
+      }
+      lastErr = new Error(msg); // 5xx → 重试
+    } catch (e: any) {
+      if (fatal || e?.message === 'Unauthorized' || /401/.test(String(e?.message))) throw e;
+      lastErr = e; // 网络错误/5xx → 重试
+    }
+    if (attempt < retries) {
+      await sleep(600 * Math.pow(2, attempt)); // 0.6s → 1.2s
+    }
+  }
+  throw lastErr || new Error('请求失败');
+}
+
 export const mobileCaptureApi = {
   // 认证
   login(pin: string, operatorName: string, deviceName: string, areaCode?: string) {
@@ -481,7 +557,7 @@ export const mobileCaptureApi = {
     return authRequest<any>(`/mobile-capture/captures/${id}/reopen`, { method: 'POST', body: JSON.stringify({ sessionId }) });
   },
 
-  // 图片
+  // 图片（弱网自动重试）
   uploadImage(captureId: number, file: File, meta: { role: string; colors?: string[]; sequence?: number; isCoverCandidate?: boolean }) {
     const form = new FormData();
     form.append('image', file);
@@ -489,7 +565,7 @@ export const mobileCaptureApi = {
     if (meta.colors?.length) form.append('colors', JSON.stringify(meta.colors));
     if (meta.sequence !== undefined) form.append('sequence', String(meta.sequence));
     if (meta.isCoverCandidate) form.append('isCoverCandidate', 'true');
-    return authRequest<any>(`/mobile-capture/captures/${captureId}/images`, { method: 'POST', body: form });
+    return authRequestWithRetry<any>(`/mobile-capture/captures/${captureId}/images`, { method: 'POST', body: form });
   },
   getImages(captureId: number) {
     return authRequest<any>(`/mobile-capture/captures/${captureId}/images`);
@@ -557,23 +633,23 @@ export const mobileCaptureApi = {
   reviewImageDownloadUrl(imageId: number, filename?: string) {
     return `${API_BASE}/mobile-capture/review/images/${imageId}/file${filename ? `?download=${encodeURIComponent(filename)}` : ''}`;
   },
-  /** 电脑端补传原图（照片导出到电脑后补回任务） */
+  /** 电脑端补传原图（照片导出到电脑后补回任务；弱网自动重试） */
   reuploadImage(captureId: number, file: File, meta: { role: string; colors?: string[]; isCoverCandidate?: boolean }) {
     const form = new FormData();
     form.append('image', file);
     form.append('role', meta.role);
     if (meta.colors?.length) form.append('colors', JSON.stringify(meta.colors));
     if (meta.isCoverCandidate) form.append('isCoverCandidate', 'true');
-    return request<any>(`/mobile-capture/review/captures/${captureId}/images/reupload`, { method: 'POST', body: form });
+    return requestWithRetry<any>(`/mobile-capture/review/captures/${captureId}/images/reupload`, { method: 'POST', body: form });
   },
-  /** 处理后照片 */
+  /** 处理后照片（弱网自动重试） */
   uploadProcessedImage(captureId: number, file: File, meta: { sourceImageId?: number; role?: string; isCover?: boolean }) {
     const form = new FormData();
     form.append('image', file);
     if (meta.sourceImageId) form.append('sourceImageId', String(meta.sourceImageId));
     if (meta.role) form.append('role', meta.role);
     if (meta.isCover) form.append('isCover', 'true');
-    return request<any>(`/mobile-capture/review/captures/${captureId}/processed-images`, { method: 'POST', body: form });
+    return requestWithRetry<any>(`/mobile-capture/review/captures/${captureId}/processed-images`, { method: 'POST', body: form });
   },
   processedImageFileUrl(imageId: number) {
     return `${API_BASE}/mobile-capture/review/processed-images/${imageId}/file`;

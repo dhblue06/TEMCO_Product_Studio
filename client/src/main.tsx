@@ -6,6 +6,8 @@ import MobileCaptureReviewPage from './pages/MobileCaptureReviewPage'
 import MobileInventoryPage from './pages/MobileInventoryPage'
 import InventoryDashboardPage from './pages/InventoryDashboardPage'
 import { LanguageProvider } from './i18n'
+import { ToastProvider } from './components/ui/ToastProvider'
+import { ConfirmProvider } from './components/ui/ConfirmProvider'
 import './index.css'
 
 // 路径路由：
@@ -27,8 +29,12 @@ if (path.startsWith('/mobile-inventory')) {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <LanguageProvider>
-      <RootComponent />
-    </LanguageProvider>
+    <ToastProvider>
+      <ConfirmProvider>
+        <LanguageProvider>
+          <RootComponent />
+        </LanguageProvider>
+      </ConfirmProvider>
+    </ToastProvider>
   </React.StrictMode>,
 )

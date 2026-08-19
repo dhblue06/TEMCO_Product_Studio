@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { mobileCaptureApi } from '../../services/api';
 import { ColorSwatch, DEFAULT_COLOR_HEX } from './ColorSwatch';
+import { useToast } from '../ui/ToastProvider';
 
 interface Draft {
   id: number;
@@ -25,6 +26,7 @@ export function VariantDraftPanel({ captureId, colorHex, colorTexture }: {
   colorHex?: Record<string, string>;
   colorTexture?: Record<string, string>;
 }) {
+  const { error: toastError } = useToast();
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [loading, setLoading] = useState(false);
   const [created, setCreated] = useState<number | null>(null);
@@ -47,9 +49,9 @@ export function VariantDraftPanel({ captureId, colorHex, colorTexture }: {
       if (res.success) {
         setCreated(res.data?.created || 0);
         load();
-      } else alert(res.error || '生成失败');
+      } else toastError(res.error || '生成失败');
     } catch (e: any) {
-      alert('生成失败: ' + e.message);
+      toastError('生成失败: ' + e.message);
     }
   };
 
@@ -57,7 +59,7 @@ export function VariantDraftPanel({ captureId, colorHex, colorTexture }: {
     try {
       await mobileCaptureApi.updateVariantDraft(id, { actionType });
       load();
-    } catch (e: any) { alert('更新失败: ' + e.message); }
+    } catch (e: any) { toastError('更新失败: ' + e.message); }
   };
 
   return (

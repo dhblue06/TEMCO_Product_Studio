@@ -1,6 +1,7 @@
 // 颜色映射面板（文档 16.3：手机标注颜色 → 映射/新建/忽略）
 import React, { useState } from 'react';
 import { mobileCaptureApi } from '../../services/api';
+import { useToast } from '../ui/ToastProvider';
 
 interface PendingColor {
   id: number;
@@ -21,6 +22,7 @@ interface Props {
 }
 
 export function ColorMappingPanel({ colors, onChange }: Props) {
+  const { error: toastError } = useToast();
   const [busy, setBusy] = useState(0);
 
   const act = async (id: number, status: string) => {
@@ -29,7 +31,7 @@ export function ColorMappingPanel({ colors, onChange }: Props) {
       await mobileCaptureApi.mapColor(id, status);
       onChange();
     } catch (e: any) {
-      alert('操作失败: ' + e.message);
+      toastError('操作失败: ' + e.message);
     } finally {
       setBusy(b => b - 1);
     }

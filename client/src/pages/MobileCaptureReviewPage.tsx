@@ -4,12 +4,16 @@ import { mobileCaptureApi } from '../services/api';
 import { MobileCaptureListItem, ReviewStats } from '../types/mobileCapture';
 import CaptureTaskCard from '../components/mobileCapture/CaptureTaskCard';
 import CaptureReviewPanel from '../components/mobileCapture/CaptureReviewPanel';
+import { useToast } from '../components/ui/ToastProvider';
+import { useConfirm } from '../components/ui/ConfirmProvider';
 
 interface Props {
   onClose: () => void;
 }
 
 export default function MobileCaptureReviewPage({ onClose }: Props) {
+  const { success, error: toastError } = useToast();
+  const { confirm } = useConfirm();
   const [stats, setStats] = useState<ReviewStats | null>(null);
   const [captures, setCaptures] = useState<MobileCaptureListItem[]>([]);
   const [pagination, setPagination] = useState({ page: 1, pageSize: 20, total: 0, totalPages: 0 });
@@ -42,23 +46,24 @@ export default function MobileCaptureReviewPage({ onClose }: Props) {
   };
 
   const batchDelete = async () => {
-    if (checkedIds.size === 0) { alert('请先选择要删除的任务'); return; }
+    if (checkedIds.size === 0) { toastError('请先选择要删除的任务'); return; }
     const names = captures.filter(c => checkedIds.has(c.id)).map(c => c.product_name || c.reference).join('、');
-    if (!window.confirm(`确定删除选中的 ${checkedIds.size} 个采集任务吗？\n\n${names}\n\n将同时删除任务下的照片记录、颜色、库存、备注（未被推送的照片文件也会删除）。此操作不可恢复。`)) return;
+    const ok = await confirm(`确定删除选中的 ${checkedIds.size} 个采集任务吗？\n\n${names}\n\n将同时删除任务下的照片记录、颜色、库存、备注（未被推送的照片文件也会删除）。此操作不可恢复。`, { title: '批量删除采集任务', danger: true });
+    if (!ok) return;
     setDeleting(true);
     try {
       const res = await mobileCaptureApi.batchDeleteCaptures(Array.from(checkedIds));
       if (res.success) {
-        alert(res.message || '已删除');
+        success(res.message || '已删除');
         setCheckedIds(new Set());
         if (selectedId && checkedIds.has(selectedId)) setSelectedId(null);
         loadList();
         loadStats();
       } else {
-        alert(res.error || '删除失败');
+        toastError(res.error || '删除失败');
       }
     } catch (e: any) {
-      alert('删除失败: ' + e.message);
+      toastError('删除失败: ' + e.message);
     } finally {
       setDeleting(false);
     }
@@ -80,7 +85,7 @@ export default function MobileCaptureReviewPage({ onClose }: Props) {
         setPagination(res.data.pagination);
       }
     } catch (e: any) {
-      alert('加载列表失败: ' + e.message);
+      toastError('加载列表失败: ' + e.message);
     } finally {
       setLoading(false);
     }
@@ -207,7 +212,7 @@ export default function MobileCaptureReviewPage({ onClose }: Props) {
                 captureId={selectedId}
                 onBack={() => setSelectedId(null)}
                 onChanged={() => { loadList(); loadStats(); }}
-                onPushed={(msg) => alert(msg)}
+                onPushed={(msg) => success(msg)}
               />
             </div>
           )}

@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { ProductMatchCandidate, CaptureStatusInfo } from '../../types/mobileCapture';
 import { mobileCaptureApi } from '../../services/api';
 import { useI18n } from '../../i18n';
+import { useToast } from '../ui/ToastProvider';
 
 interface Props {
   candidate: ProductMatchCandidate | null;
@@ -25,6 +26,7 @@ function statusTagKeys(info: CaptureStatusInfo): { key: string; color: string; p
 
 export function ProductSummary({ candidate, captureStatus, loading, onRefreshStatus }: Props) {
   const { t } = useI18n();
+  const { error: toastError, success } = useToast();
   if (!candidate) return null;
 
   // 已卖完标记（巡视发现断货时快速记录）
@@ -34,10 +36,10 @@ export function ProductSummary({ candidate, captureStatus, loading, onRefreshSta
     setMarking(true);
     try {
       const res = await mobileCaptureApi.setSoldOut(candidate.productId, !soldOut);
-      if (res.success) setSoldOut(!soldOut);
-      else alert(res.error || t('common.opFail'));
+      if (res.success) { setSoldOut(!soldOut); success(res.message || (soldOut ? t('product.available') : t('product.soldOutMark')), { vibrate: true }); }
+      else toastError(res.error || t('common.opFail'));
     } catch (e: any) {
-      alert(t('product.soldOut') + ': ' + e.message);
+      toastError(t('product.soldOut') + ': ' + e.message);
     } finally {
       setMarking(false);
     }

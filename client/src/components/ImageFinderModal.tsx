@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { useToast } from './ui/ToastProvider';
+import { useConfirm } from './ui/ConfirmProvider';
 
 interface ImageFinderModalProps {
   refs: string[];
@@ -6,6 +8,8 @@ interface ImageFinderModalProps {
 }
 
 const ImageFinderModal: React.FC<ImageFinderModalProps> = ({ refs, onClose }) => {
+  const { success, error: toastError } = useToast();
+  const { confirm } = useConfirm();
   const [sourceFolder, setSourceFolder] = useState('');
   const [targetFolder, setTargetFolder] = useState('');
   const [results, setResults] = useState<any[]>([]);
@@ -60,7 +64,8 @@ const ImageFinderModal: React.FC<ImageFinderModalProps> = ({ refs, onClose }) =>
       ? foundResults.map(r => r.files[0]).filter(Boolean)
       : foundResults.flatMap(r => r.files);
     if (allFiles.length === 0) { setMessage('没有找到可复制的图片'); return; }
-    if (!window.confirm(`确定将 ${allFiles.length} 张图片复制到 ${targetFolder.trim()}？${copyMode === 'best' ? '（每个产品1张）' : ''}`)) return;
+    const ok = await confirm(`确定将 ${allFiles.length} 张图片复制到 ${targetFolder.trim()}？${copyMode === 'best' ? '（每个产品1张）' : ''}`, { title: '复制图片' });
+    if (!ok) return;
     fetch('/api/product-list-import/folder-settings', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ targetFolder: targetFolder.trim() }) }).catch(()=>{});
     setCopying(true); setMessage('');
     try {

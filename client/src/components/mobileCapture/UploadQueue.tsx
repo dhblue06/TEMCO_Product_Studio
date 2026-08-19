@@ -11,6 +11,8 @@ export interface UploadQueueItem {
   status: QueueItemStatus;
   error?: string;
   previewUrl?: string;
+  /** 原始文件对象（仅失败重试时保留，成功/取消后释放） */
+  file?: File;
 }
 
 interface Props {

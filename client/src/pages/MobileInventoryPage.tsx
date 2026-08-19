@@ -5,6 +5,8 @@ import InventoryModelCounter, { ColorRow } from '../components/mobileInventory/I
 import { useMobileCaptureSession } from '../hooks/useMobileCaptureSession';
 import { mobileCaptureApi, inventoryApi } from '../services/api';
 import { useI18n, LangSwitch } from '../i18n';
+import { useToast } from '../components/ui/ToastProvider';
+import { useConfirm } from '../components/ui/ConfirmProvider';
 
 type Step = 'start' | 'product' | 'brand' | 'count' | 'summary';
 
@@ -23,6 +25,8 @@ const STORAGE_KEY = 'mobile_inventory_progress';
 
 export function MobileInventoryPage() {
   const { t } = useI18n();
+  const { error: toastError, success } = useToast();
+  const { confirm } = useConfirm();
   const { auth, login } = useMobileCaptureSession();
   const [step, setStep] = useState<Step>('start');
   const [loading, setLoading] = useState(false);
@@ -89,8 +93,8 @@ export function MobileInventoryPage() {
         setInvSession(res.data);
         setStep('product');
         saveProgress(res.data.id, 0);
-      } else alert(res.error || t('alert.createFail'));
-    } catch (e: any) { alert(t('alert.createFail') + ': ' + e.message); } finally { setLoading(false); }
+      } else toastError(res.error || t('alert.createFail'));
+    } catch (e: any) { toastError(t('alert.createFail') + ': ' + e.message); } finally { setLoading(false); }
   };
 
   const pickSession = (s: any) => { setInvSession(s); setStep('product'); saveProgress(s.id, 0); };
@@ -101,8 +105,8 @@ export function MobileInventoryPage() {
     try {
       const res = await mobileCaptureApi.searchProduct(searchQ.trim());
       if (res.success) setSearchResult(res.data);
-      else alert(res.error || t('alert.searchFail'));
-    } catch (e: any) { alert(t('alert.searchFail') + ': ' + e.message); } finally { setLoading(false); }
+      else toastError(res.error || t('alert.searchFail'));
+    } catch (e: any) { toastError(t('alert.searchFail') + ': ' + e.message); } finally { setLoading(false); }
   };
 
   const addProduct = async (productId: number) => {
@@ -119,8 +123,8 @@ export function MobileInventoryPage() {
           setCurrentIndex(0);
           saveProgress(invSession.id, res.data.id);
         }
-      } else alert(res.error || t('alert.addFail'));
-    } catch (e: any) { alert(t('alert.addFail') + ': ' + e.message); } finally { setLoading(false); }
+      } else toastError(res.error || t('alert.addFail'));
+    } catch (e: any) { toastError(t('alert.addFail') + ': ' + e.message); } finally { setLoading(false); }
   };
 
   const enterBrand = (b: string) => {
@@ -171,13 +175,13 @@ export function MobileInventoryPage() {
 
   const doneSession = async () => {
     if (!invSession) return;
-    if (window.confirm(t('inv.doneConfirm'))) {
-      await inventoryApi.completeInventorySession(invSession.id);
-      localStorage.removeItem(STORAGE_KEY);
-      alert(t('inv.doneMsg'));
-      setInvSession(null); setProduct(null); setStep('start');
-      handleLoggedIn();
-    }
+    const ok = await confirm(t('inv.doneConfirm'), { title: t('inv.doneTitle') || '完成盘点', danger: false });
+    if (!ok) return;
+    await inventoryApi.completeInventorySession(invSession.id);
+    localStorage.removeItem(STORAGE_KEY);
+    success(t('inv.doneMsg'), { vibrate: true });
+    setInvSession(null); setProduct(null); setStep('start');
+    handleLoggedIn();
   };
 
   // ===== 渲染 =====

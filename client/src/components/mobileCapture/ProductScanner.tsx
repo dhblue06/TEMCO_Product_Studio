@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
 import { useI18n } from '../../i18n';
+import { useToast } from '../ui/ToastProvider';
 
 interface Props {
   onDetected: (code: string) => void;
@@ -9,6 +10,7 @@ interface Props {
 
 export function ProductScanner({ onDetected }: Props) {
   const { t } = useI18n();
+  const { warning: toastWarning } = useToast();
   const { videoRef, start, stop, active, liveSupported, error, capturePhotoScan } = useBarcodeScanner(onDetected);
   const [photoScanning, setPhotoScanning] = useState(false);
 
@@ -17,7 +19,7 @@ export function ProductScanner({ onDetected }: Props) {
     try {
       const code = await capturePhotoScan();
       if (!code) {
-        alert(t('scan.notFound'));
+        toastWarning(t('scan.notFound'), { vibrate: true });
       }
     } finally {
       setPhotoScanning(false);

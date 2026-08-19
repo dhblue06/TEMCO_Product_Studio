@@ -9,6 +9,8 @@ import ColorSelector from './ColorSelector';
 import { ColorSwatch, DEFAULT_COLOR_HEX } from './ColorSwatch';
 import ProductQuickEdit from './ProductQuickEdit';
 import VariantEditPanel from './VariantEditPanel';
+import { useToast } from '../ui/ToastProvider';
+import { useConfirm } from '../ui/ConfirmProvider';
 
 interface Detail {
   id: number;
@@ -54,6 +56,8 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export function CaptureReviewPanel({ captureId, onBack, onChanged, onPushed }: Props) {
+  const { error: toastError, success } = useToast();
+  const { confirm } = useConfirm();
   const [detail, setDetail] = useState<Detail | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -83,7 +87,7 @@ export function CaptureReviewPanel({ captureId, onBack, onChanged, onPushed }: P
       const res = await mobileCaptureApi.reviewCaptureDetail(captureId);
       if (res.success) setDetail(res.data);
     } catch (e: any) {
-      alert('加载失败: ' + e.message);
+      toastError('加载失败: ' + e.message);
     } finally {
       setLoading(false);
     }
@@ -115,10 +119,10 @@ export function CaptureReviewPanel({ captureId, onBack, onChanged, onPushed }: P
     setBusy(true);
     try {
       const res = await fn();
-      if (res.success) { alert(successMsg); load(); onChanged(); }
-      else alert(res.error || '操作失败');
+      if (res.success) { success(successMsg); load(); onChanged(); }
+      else toastError(res.error || '操作失败');
     } catch (e: any) {
-      alert(e.message);
+      toastError(e.message);
     } finally {
       setBusy(false);
     }
@@ -126,7 +130,7 @@ export function CaptureReviewPanel({ captureId, onBack, onChanged, onPushed }: P
 
   // 电脑端补传原图（照片导出到电脑后补回任务）
   const doReupload = async () => {
-    if (reuploadFiles.length === 0) { alert('请先选择照片'); return; }
+    if (reuploadFiles.length === 0) { toastError('请先选择照片'); return; }
     setReuploading(true);
     let ok = 0, dup = 0;
     const failMsgs: string[] = [];
@@ -139,7 +143,7 @@ export function CaptureReviewPanel({ captureId, onBack, onChanged, onPushed }: P
         failMsgs.push(`${f.name}: ${e.message}`);
       }
     }
-    alert(`补传完成：成功 ${ok} 张${dup ? `，重复跳过 ${dup} 张` : ''}${failMsgs.length ? `，失败 ${failMsgs.length} 张\n${failMsgs.join('\n')}` : ''}`);
+    success(`补传完成：成功 ${ok} 张${dup ? `，重复跳过 ${dup} 张` : ''}${failMsgs.length ? `，失败 ${failMsgs.length} 张\n${failMsgs.join('\n')}` : ''}`, { duration: 8000 });
     setReuploadFiles([]);
     setShowReupload(false);
     setReuploading(false);
@@ -334,7 +338,7 @@ export function CaptureReviewPanel({ captureId, onBack, onChanged, onPushed }: P
             if (next === null) return;
             const list = next.split(',').map(s => s.trim()).filter(Boolean);
             await mobileCaptureApi.reviewUpdateCapture(detail.id, { colors: list });
-            alert('✅ 颜色已保存');
+            success('✅ 颜色已保存');
             load();
             onChanged();
           }}
@@ -384,7 +388,7 @@ export function CaptureReviewPanel({ captureId, onBack, onChanged, onPushed }: P
           websiteQuantity={detail.product_quantity}
           onApprove={async (items) => {
             await mobileCaptureApi.approveInventory(detail.id, items);
-            alert('库存已审核');
+            success('库存已审核');
             load();
           }}
         />
@@ -415,35 +419,37 @@ export function CaptureReviewPanel({ captureId, onBack, onChanged, onPushed }: P
             try {
               const res = await mobileCaptureApi.pushToProductImages(detail.id);
               if (res.success) { onPushed(res.message || '已推送'); load(); onChanged(); }
-              else alert(res.error || '推送失败');
-            } catch (e: any) { alert(e.message); } finally { setBusy(false); }
+              else toastError(res.error || '推送失败');
+            } catch (e: any) { toastError(e.message); } finally { setBusy(false); }
           }}>
           📤 推送产品图片模块
         </button>
         <button type="button" className="btn btn-sm" disabled={syncing || !detail.prestashop_id}
           onClick={async () => {
-            if (!window.confirm('将当前产品信息（含价格/库存/图片）同步到 PrestaShop 网站？')) return;
+            const ok = await confirm('将当前产品信息（含价格/库存/图片）同步到 PrestaShop 网站？', { title: '同步到网站' });
+            if (!ok) return;
             setSyncing(true);
             try {
               const res = await prestashopApi.syncProduct(detail.reference, {
                 syncContent: true, syncSeo: true, syncCategory: true, syncBrand: true,
                 syncPrice: true, syncStock: true, syncImages: true, forceUpdate: true,
               });
-              if (res.success) { alert(res.data?.error ? `⚠️ 部分失败: ${res.data.error}` : '🚀 已同步到网站'); load(); onChanged(); }
-              else alert(res.error || '同步失败');
-            } catch (e: any) { alert('同步失败: ' + e.message); } finally { setSyncing(false); }
+              if (res.success) { success(res.data?.error ? `⚠️ 部分失败: ${res.data.error}` : '🚀 已同步到网站'); load(); onChanged(); }
+              else toastError(res.error || '同步失败');
+            } catch (e: any) { toastError('同步失败: ' + e.message); } finally { setSyncing(false); }
           }}>
           {syncing ? '同步中...' : '🚀 同步到网站'}
         </button>
         <button type="button" className="btn btn-sm" disabled={syncing || !detail.prestashop_id}
           onClick={async () => {
-            if (!window.confirm('把采集审核通过的图片（处理图优先）提升为产品图片并上传到网站？')) return;
+            const ok = await confirm('把采集审核通过的图片（处理图优先）提升为产品图片并上传到网站？', { title: '同步产品图片' });
+            if (!ok) return;
             setSyncing(true);
             try {
               const res = await mobileCaptureApi.syncImagesToWebsite(detail.id);
-              if (res.success) { alert(res.message || '✅ 图片已同步到网站'); load(); onChanged(); }
-              else alert(res.error || '图片同步失败');
-            } catch (e: any) { alert('图片同步失败: ' + e.message); } finally { setSyncing(false); }
+              if (res.success) { success(res.message || '✅ 图片已同步到网站'); load(); onChanged(); }
+              else toastError(res.error || '图片同步失败');
+            } catch (e: any) { toastError('图片同步失败: ' + e.message); } finally { setSyncing(false); }
           }}>
           {syncing ? '同步中...' : '🖼 同步产品图片到网站'}
         </button>
@@ -466,7 +472,7 @@ export function CaptureReviewPanel({ captureId, onBack, onChanged, onPushed }: P
               load();
               onChanged();
             } catch (e: any) {
-              alert('操作失败: ' + e.message);
+              toastError('操作失败: ' + e.message);
             }
           }}
         />
@@ -558,6 +564,8 @@ function ProcessedImagesSection({ captureId, sourceImages, processedImages, onCh
   processedImages: MobileProcessedImage[];
   onChanged: () => void;
 }) {
+  const { error: toastError, success } = useToast();
+  const { confirm } = useConfirm();
   const [showUpload, setShowUpload] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [sourceImageId, setSourceImageId] = useState(0);
@@ -567,7 +575,7 @@ function ProcessedImagesSection({ captureId, sourceImages, processedImages, onCh
   const [large, setLarge] = useState<MobileProcessedImage | null>(null);
 
   const doUpload = async () => {
-    if (selectedFiles.length === 0) { alert('请先选择要上传的图片'); return; }
+    if (selectedFiles.length === 0) { toastError('请先选择要上传的图片'); return; }
     setUploading(true);
     let ok = 0, dup = 0;
     const failMsgs: string[] = [];
@@ -584,7 +592,7 @@ function ProcessedImagesSection({ captureId, sourceImages, processedImages, onCh
         failMsgs.push(`${f.name}: ${e.message}`);
       }
     }
-    alert(`处理图上传完成：成功 ${ok} 张${dup ? `，重复跳过 ${dup} 张` : ''}${failMsgs.length ? `，失败 ${failMsgs.length} 张\n${failMsgs.join('\n')}` : ''}`);
+    success(`处理图上传完成：成功 ${ok} 张${dup ? `，重复跳过 ${dup} 张` : ''}${failMsgs.length ? `，失败 ${failMsgs.length} 张\n${failMsgs.join('\n')}` : ''}`, { duration: 8000 });
     setSelectedFiles([]);
     setShowUpload(false);
     setUploading(false);
@@ -600,7 +608,8 @@ function ProcessedImagesSection({ captureId, sourceImages, processedImages, onCh
     onChanged();
   };
   const remove = async (img: MobileProcessedImage) => {
-    if (!window.confirm(`删除处理图 ${img.filename}？`)) return;
+    const ok = await confirm(`删除处理图 ${img.filename}？`, { title: '删除处理图', danger: true });
+    if (!ok) return;
     await mobileCaptureApi.deleteProcessedImage(img.id);
     onChanged();
   };

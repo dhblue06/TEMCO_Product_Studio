@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import MissingProductsModal from './MissingProductsModal';
+import { useToast } from './ui/ToastProvider';
 
 interface ProductLookupModalProps {
   onClose: () => void;
@@ -7,6 +8,7 @@ interface ProductLookupModalProps {
 }
 
 const ProductLookupModal: React.FC<ProductLookupModalProps> = ({ onClose, onResults }) => {
+  const { error: toastError } = useToast();
   const [input, setInput] = useState('');
   const [querying, setQuerying] = useState(false);
   const [result, setResult] = useState<any>(null);
@@ -30,10 +32,10 @@ const ProductLookupModal: React.FC<ProductLookupModalProps> = ({ onClose, onResu
           onResults(d.data.products.map((p: any) => p.reference));
         }
       } else {
-        alert(d.error || '查询失败');
+        toastError(d.error || '查询失败');
       }
     } catch (err: any) {
-      alert(err.message);
+      toastError(err.message);
     } finally {
       setQuerying(false);
     }

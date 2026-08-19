@@ -1,6 +1,8 @@
 // CAJA 新品检查（v1.6）：上传 Products.xlsx → 与 PrestaShop 网站比对 → 默认只显示网站没有的新品
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { cajaCheckApi } from '../services/api';
+import { useToast } from './ui/ToastProvider';
+import { useConfirm } from './ui/ConfirmProvider';
 import './Modal.css';
 
 interface PreviewData {
@@ -72,6 +74,8 @@ const MATCH_METHOD_LABEL: Record<string, string> = {
 };
 
 export function CajaNewProductCheckModal({ onClose }: { onClose: () => void }) {
+  const { success, error: toastError } = useToast();
+  const { confirm } = useConfirm();
   const fileRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<PreviewData | null>(null);
@@ -234,7 +238,8 @@ export function CajaNewProductCheckModal({ onClose }: { onClose: () => void }) {
 
   const uploadSelected = async () => {
     if (!batchId || selectedIds.size === 0) return;
-    if (!window.confirm(`将 ${selectedIds.size} 个商品直接创建到 PrestaShop 网站（基础信息：编号/名称/售价/EAN，库存为 0，不含图片/分类/文案）。继续？`)) return;
+    const ok = await confirm(`将 ${selectedIds.size} 个商品直接创建到 PrestaShop 网站（基础信息：编号/名称/售价/EAN，库存为 0，不含图片/分类/文案）。继续？`, { title: '上传到网站' });
+    if (!ok) return;
     setUploading(true);
     setUploadMsg('');
     try {
@@ -257,7 +262,8 @@ export function CajaNewProductCheckModal({ onClose }: { onClose: () => void }) {
   /** 价格同步：把勾选商品在网站上的价格更新为文件售价（以文件为准） */
   const syncPriceSelected = async () => {
     if (!batchId || selectedIds.size === 0) return;
-    if (!window.confirm(`将以文件售价为准，把 ${selectedIds.size} 个商品在 PrestaShop 网站上的价格更新为文件中的售价。继续？`)) return;
+    const ok = await confirm(`将以文件售价为准，把 ${selectedIds.size} 个商品在 PrestaShop 网站上的价格更新为文件中的售价。继续？`, { title: '同步价格' });
+    if (!ok) return;
     setSyncingPrices(true);
     setPriceMsg('');
     try {
@@ -290,7 +296,8 @@ export function CajaNewProductCheckModal({ onClose }: { onClose: () => void }) {
   const isSelectable = (it: ItemRow) => statusFilter === 'price_changed' ? hasPriceChanged(it) : !hasUploaded(it);
 
   const removeBatch = async (id: number) => {
-    if (!window.confirm(`删除检查批次 #${id}？其明细将一并删除。`)) return;
+    const ok = await confirm(`删除检查批次 #${id}？其明细将一并删除。`, { title: '删除批次', danger: true });
+    if (!ok) return;
     const res = await cajaCheckApi.deleteBatch(id);
     if (res.success) {
       await loadHistory();
@@ -300,9 +307,9 @@ export function CajaNewProductCheckModal({ onClose }: { onClose: () => void }) {
         setItems([]);
         setPagination(null);
       }
-      alert('✅ 批次已删除');
+      success('✅ 批次已删除');
     } else {
-      alert('❌ ' + (res.error || '删除失败'));
+      toastError('❌ ' + (res.error || '删除失败'));
     }
   };
 

@@ -1,7 +1,9 @@
 import React, { useState, useRef } from 'react';
+import { useToast } from './ui/ToastProvider';
 import './Modal.css';
 
 const ImageWorkshopModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const { error: toastError } = useToast();
   const [reference, setReference] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
@@ -23,8 +25,8 @@ const ImageWorkshopModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   };
 
   const doUpload = async () => {
-    if (!reference.trim()) { alert('请输入商品 Reference'); return; }
-    if (selectedFiles.length === 0) { alert('请先选择图片'); return; }
+    if (!reference.trim()) { toastError('请输入商品 Reference'); return; }
+    if (selectedFiles.length === 0) { toastError('请先选择图片'); return; }
 
     setUploading(true);
     setMessage('上传中...');
@@ -56,7 +58,7 @@ const ImageWorkshopModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       }
     } catch (err: any) {
       setMessage(`❌ ${err.message}`);
-      alert(`错误: ${err.message}`);
+      toastError(`错误: ${err.message}`);
     } finally {
       setUploading(false);
     }

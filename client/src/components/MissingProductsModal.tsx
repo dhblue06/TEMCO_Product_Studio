@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useToast } from './ui/ToastProvider';
 
 interface MissingProductsModalProps {
   missingInputs: string[];
@@ -6,9 +7,10 @@ interface MissingProductsModalProps {
 }
 
 const MissingProductsModal: React.FC<MissingProductsModalProps> = ({ missingInputs, onClose }) => {
+  const { success } = useToast();
   const handleCopy = () => {
     navigator.clipboard.writeText(missingInputs.join('\n'));
-    alert('已复制到剪贴板');
+    success('已复制到剪贴板');
   };
 
   return (

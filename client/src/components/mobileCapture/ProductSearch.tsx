@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { mobileCaptureApi } from '../../services/api';
 import { MatchResult, ProductMatchCandidate } from '../../types/mobileCapture';
 import { useI18n } from '../../i18n';
+import { useToast } from '../ui/ToastProvider';
 
 interface Props {
   onSelect: (candidate: ProductMatchCandidate, result?: MatchResult | null) => void;
@@ -21,6 +22,7 @@ function ActiveIcon({ active }: { active?: boolean | null }) {
 
 export function ProductSearch({ onSelect, onManualCode, onAddNew, initialResult }: Props) {
   const { t } = useI18n();
+  const { error: toastError } = useToast();
   const [query, setQuery] = useState('');
   const [result, setResult] = useState<MatchResult | null>(null);
   const [candidates, setCandidates] = useState<ProductMatchCandidate[]>([]);
@@ -50,7 +52,7 @@ export function ProductSearch({ onSelect, onManualCode, onAddNew, initialResult 
         }
       }
     } catch (e: any) {
-      alert('搜索失败: ' + e.message);
+      toastError('搜索失败: ' + e.message);
     } finally {
       setSearching(false);
     }
