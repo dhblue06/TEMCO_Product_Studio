@@ -18,6 +18,10 @@ const DICT: Record<string, Entry> = {
   'common.back': { zh: '返回', es: 'Volver' },
   'common.continue': { zh: '继续', es: 'Continuar' },
 
+  // 手机端入口（hub）
+  'hub.subtitle': { zh: '选择你的工作入口', es: 'Elige tu tarea' },
+  'hub.hint': { zh: '三个入口共用同一账号 · 选择后进入对应工作台', es: 'Misma cuenta para todos · Elige y empieza' },
+
   // 登录 / 会话
   'login.title': { zh: '开始采集', es: 'Iniciar captura' },
   'login.operator': { zh: '操作员姓名', es: 'Nombre del operario' },
