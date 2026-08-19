@@ -1,6 +1,6 @@
-// 采集会话开始页（文档 8.1：操作员 / 设备 / 区域 / PIN）
+// 采集会话开始页（文档 8.1：操作员 / 区域 / PIN）
 import React, { useState } from 'react';
-import { useI18n, LangSwitch } from '../../i18n';
+import { useI18n } from '../../i18n';
 import { useToast } from '../ui/ToastProvider';
 
 interface Props {
@@ -16,21 +16,20 @@ export function SessionStart({ loading, error, onStart, onContinueSession, hasAc
   const { warning: toastWarning } = useToast();
   const [pin, setPin] = useState('');
   const [operatorName, setOperatorName] = useState('');
-  const [deviceName, setDeviceName] = useState('');
   const [areaCode, setAreaCode] = useState('');
 
   const submit = async () => {
-    if (!operatorName.trim() || !deviceName.trim()) {
-      toastWarning(t('login.operator') + ' / ' + t('login.device') + ' *', { vibrate: true });
+    if (!operatorName.trim()) {
+      toastWarning(t('login.operator') + ' *', { vibrate: true });
       return;
     }
-    await onStart(pin.trim(), operatorName.trim(), deviceName.trim(), areaCode.trim());
+    // 设备名称不再手动填写，统一记为 'mobile'
+    await onStart(pin.trim(), operatorName.trim(), 'mobile', areaCode.trim());
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: 20, maxWidth: 420, margin: '0 auto' }}>
       <div style={{ textAlign: 'center', marginBottom: 8 }}>
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}><LangSwitch /></div>
         <h2 style={{ margin: 0, fontSize: 20 }}>📱 TEMCO Mobile Capture</h2>
         <p style={{ color: 'var(--text-muted)', fontSize: 12, margin: '6px 0 0' }}>
           {t('login.title')}
@@ -45,9 +44,6 @@ export function SessionStart({ loading, error, onStart, onContinueSession, hasAc
 
       <label style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t('login.operator')} *</label>
       <input value={operatorName} onChange={e => setOperatorName(e.target.value)} placeholder={t('login.operatorPh')} style={inputStyle} />
-
-      <label style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t('login.device')} *</label>
-      <input value={deviceName} onChange={e => setDeviceName(e.target.value)} placeholder={t('login.devicePh')} style={inputStyle} />
 
       <label style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t('login.area')}</label>
       <input value={areaCode} onChange={e => setAreaCode(e.target.value)} placeholder="A-03" style={inputStyle} />
