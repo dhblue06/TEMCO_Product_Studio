@@ -1,4 +1,4 @@
-// 手机端角色入口选择页（v1.7）：商品采集 / 缺货上报 / 仓库盘点
+// 手机端角色入口选择页（v1.7）：商品采集 / 缺货上报（仓库盘点暂不展示）
 import React from 'react';
 import { useI18n, LangSwitch } from '../i18n';
 
@@ -24,13 +24,6 @@ const ENTRIES: Entry[] = [
     titleKey: 'hub.stock',
     descKey: 'hub.stockDesc',
     accent: '#dc2626',
-  },
-  {
-    path: '/mobile-inventory',
-    icon: '📦',
-    titleKey: 'hub.inventory',
-    descKey: 'hub.inventoryDesc',
-    accent: '#f59e0b',
   },
 ];
 
