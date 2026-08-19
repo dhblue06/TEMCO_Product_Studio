@@ -97,7 +97,7 @@ export function StockReportPage({ onClose }: { onClose: () => void }) {
 
       {/* 筛选 */}
       <div style={{ padding: '10px 20px', display: 'flex', gap: 6, borderBottom: '1px solid var(--border-color)', background: 'var(--bg-secondary)' }}>
-        {([['active', `待处理（${summary.count}）`], ['synced', '已同步'], ['resolved', '已补货'], ['all', '全部']] as [StatusFilter, string][]).map(([s, label]) => (
+        {([['active', `待处理（${summary.count}）`], ['resolved', '已补货'], ['all', '全部']] as [StatusFilter, string][]).map(([s, label]) => (
           <button key={s} className={filter === s ? 'btn btn-primary btn-sm' : 'btn btn-sm'} onClick={() => setFilter(s)}>{label}</button>
         ))}
       </div>
