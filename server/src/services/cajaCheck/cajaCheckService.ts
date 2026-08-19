@@ -264,6 +264,31 @@ export interface UploadWebsiteResult {
   results: { itemId: number; reference: string; status: 'created' | 'exists' | 'skipped' | 'failed'; prestashopId?: number | null; error?: string }[];
 }
 
+/**
+ * 网站侧已存在/已创建的商品 → 回填本地 products 表（PIM 主表）。
+ * 按 reference 幂等 upsert：本地无则插入，有则更新（名称/EAN/价格/prestashop_id）。
+ * 失败不阻断上传流程（由调用方 try/catch）。
+ */
+function upsertLocalProductFromCaja(db: any, item: any, psId: number): void {
+  const reference = String(item.caja_reference || '').trim();
+  if (!reference) return;
+  const name = String(item.name || reference || 'Product');
+  const ean13 = isValidBarcodeCandidate(String(item.barcode || '')) ? String(item.barcode) : '';
+  const price = item.sale_price ?? 0;
+  db.prepare(`
+    INSERT INTO products (reference, name, ean13, price, quantity, prestashop_id, status, prestashop_sync_status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 0, ?, '待处理', 'synced', datetime('now'), datetime('now'))
+    ON CONFLICT(reference) DO UPDATE SET
+      name = excluded.name,
+      ean13 = excluded.ean13,
+      price = excluded.price,
+      prestashop_id = excluded.prestashop_id,
+      prestashop_sync_status = 'synced',
+      prestashop_last_sync_at = datetime('now'),
+      updated_at = excluded.updated_at
+  `).run(reference, name, ean13, price, String(psId));
+}
+
 export async function uploadItemsToWebsite(batchId: number, itemIds: number[]): Promise<UploadWebsiteResult> {
   const db = getDatabase();
   if (!itemIds || itemIds.length === 0) throw new Error('未选择要上传的商品');
@@ -292,10 +317,11 @@ export async function uploadItemsToWebsite(batchId: number, itemIds: number[]): 
     const reference = String(item.caja_reference || '').trim();
     const result: UploadWebsiteResult['results'][number] = { itemId: item.id, reference, status: 'skipped', prestashopId: null };
     try {
-      // 已上传过 → 跳过
+      // 已上传过 → 跳过（本地 PIM 未同步过的旧批次，在此一并回填）
       if (item.prestashop_product_id) {
         result.status = 'skipped';
         result.prestashopId = Number(item.prestashop_product_id);
+        try { upsertLocalProductFromCaja(db, item, result.prestashopId); } catch (e: any) { console.warn(`[CajaCheck] 本地回填失败 ${reference}: ${e?.message}`); }
         skipped++;
         results.push(result);
         continue;
@@ -306,6 +332,7 @@ export async function uploadItemsToWebsite(batchId: number, itemIds: number[]): 
         db.prepare("UPDATE caja_check_items SET prestashop_product_id = ?, upload_status = 'exists' WHERE id = ?").run(found.id, item.id);
         result.status = 'exists';
         result.prestashopId = found.id;
+        try { upsertLocalProductFromCaja(db, item, result.prestashopId); } catch (e: any) { console.warn(`[CajaCheck] 本地回填失败 ${reference}: ${e?.message}`); }
         exists++;
         results.push(result);
         continue;
@@ -334,6 +361,8 @@ export async function uploadItemsToWebsite(batchId: number, itemIds: number[]): 
       db.prepare("UPDATE caja_check_items SET prestashop_product_id = ?, upload_status = 'created', upload_error = NULL WHERE id = ?").run(psId, item.id);
       // 库存初始 0（不把 CAJA 库存当网站库存）
       try { await client.updateProductStock(psId, 0, config.defaultShopId); } catch { /* 库存设置失败不阻断 */ }
+      // 本地 PIM 回填（新建成功的商品）
+      try { upsertLocalProductFromCaja(db, item, psId); } catch (e: any) { console.warn(`[CajaCheck] 本地回填失败 ${reference}: ${e?.message}`); }
       result.status = 'created';
       result.prestashopId = psId;
       created++;

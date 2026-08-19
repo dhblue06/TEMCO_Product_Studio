@@ -6,6 +6,7 @@ server/data/*.db-wal
 server/data/uploads/
 server/data/exports/
 server/data/mobile-captures/
+server/data/backups/
 .reasonix/
 *.log
 .DS_Store
