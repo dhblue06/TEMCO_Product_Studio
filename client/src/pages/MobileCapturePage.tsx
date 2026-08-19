@@ -1004,9 +1004,18 @@ export default function MobileCapturePage() {
 // ===== 子组件 =====
 
 function MobileShell({ networkOk, children }: { networkOk: boolean; children: React.ReactNode }) {
+  const { t } = useI18n();
   return (
     <div className="mobile-safe-top" style={{ minHeight: '100vh', background: 'var(--bg-primary)', color: 'var(--text-primary)', maxWidth: 480, margin: '0 auto', position: 'relative', paddingBottom: 40 }}>
-      <div style={{ position: 'sticky', top: 0, zIndex: 50, display: 'flex', justifyContent: 'flex-end', padding: '6px 12px 0', background: 'var(--bg-primary)' }}>
+      <div style={{ position: 'sticky', top: 0, zIndex: 50, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 12px 0', background: 'var(--bg-primary)' }}>
+        <button
+          type="button"
+          onClick={() => { window.location.href = '/mobile'; }}
+          style={{ border: '1px solid var(--border-color)', background: 'var(--bg-hover)', borderRadius: 8, padding: '4px 10px', fontSize: 12, cursor: 'pointer', color: 'var(--text-secondary)' }}
+          title="返回入口 / Volver al menú"
+        >
+          🏠 {t('hub.backHome')}
+        </button>
         <LangSwitch />
       </div>
       {children}

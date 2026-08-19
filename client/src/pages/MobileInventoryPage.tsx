@@ -190,6 +190,14 @@ export function MobileInventoryPage() {
   return (
     <div style={{ maxWidth: 480, margin: '0 auto', padding: '12px 14px 20px', minHeight: '100vh', background: 'var(--bg-primary)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, position: 'sticky', top: 0, background: 'var(--bg-primary)', padding: '6px 0', zIndex: 10 }}>
+        <button
+          type="button"
+          onClick={() => { window.location.href = '/mobile'; }}
+          style={{ border: '1px solid var(--border-color)', background: 'var(--bg-hover)', borderRadius: 8, padding: '4px 10px', fontSize: 12, cursor: 'pointer', color: 'var(--text-secondary)', flexShrink: 0 }}
+          title="返回入口 / Volver al menú"
+        >
+          🏠 {t('hub.backHome')}
+        </button>
         {backTarget && (
           <button type="button" onClick={() => setStep(backTarget)} style={{ border: 'none', background: 'var(--bg-hover)', borderRadius: 8, width: 32, height: 32, fontSize: 18, cursor: 'pointer', color: 'var(--text-secondary)' }}>←</button>
         )}

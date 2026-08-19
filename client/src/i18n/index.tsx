@@ -21,6 +21,7 @@ const DICT: Record<string, Entry> = {
   // 手机端入口（hub）
   'hub.subtitle': { zh: '选择你的工作入口', es: 'Elige tu tarea' },
   'hub.hint': { zh: '三个入口共用同一账号 · 选择后进入对应工作台', es: 'Misma cuenta para todos · Elige y empieza' },
+  'hub.backHome': { zh: '入口', es: 'Menú' },
   'hub.capture': { zh: '商品采集', es: 'Captura' },
   'hub.captureDesc': { zh: '扫码找货、拍照、颜色/库存/型号登记', es: 'Escanear, fotos, colores/stock/modelos' },
   'hub.stock': { zh: '缺货上报', es: 'Faltantes' },
