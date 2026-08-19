@@ -1,20 +1,25 @@
 :root {
-  /* Corporate/Professional color palette */
-  --bg-primary: #f4f5f7;
+  /* UI/UX Pro Max palette — Inventory/Stock Management + SaaS Trust Blue
+     参考: ui-ux-pro-max skill (products.csv #102 Inventory, #1 SaaS, #49 Logistics)
+     方向: 专业蓝主色 + 橙色 CTA 强调 + traffic-light 状态色 */
+  --bg-primary: #f4f6f9;
   --bg-secondary: #ffffff;
-  --bg-hover: #eef1f5;
+  --bg-hover: #eef2f7;
   --bg-active: #e8f0fe;
-  --border-color: #e2e5e9;
-  --text-primary: #1a1d23;
-  --text-secondary: #5f6b7a;
-  --text-muted: #9aa4b2;
+  --border-color: #e3e8ef;
+  --text-primary: #172033;
+  --text-secondary: #5c6b82;
+  --text-muted: #98a4b8;
 
-  /* Accent: Professional blue */
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
+  /* Accent: Trust blue (deepened for stronger trust) + orange CTA contrast */
+  --accent: #1d4ed8;
+  --accent-hover: #1e40af;
   --accent-light: #dbeafe;
+  --cta: #ea580c;
+  --cta-hover: #c2410c;
+  --cta-light: #ffedd5;
 
-  /* Status colors */
+  /* Status colors — traffic-light standard (WCAG AA) */
   --success: #16a34a;
   --success-bg: #dcfce7;
   --warning: #d97706;
@@ -41,9 +46,9 @@
   --radius-lg: 12px;
 
   /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
-  --shadow-md: 0 2px 8px rgba(0,0,0,0.08);
-  --shadow-lg: 0 4px 16px rgba(0,0,0,0.1);
+  --shadow-sm: 0 1px 2px rgba(23,32,51,0.06);
+  --shadow-md: 0 2px 8px rgba(23,32,51,0.09);
+  --shadow-lg: 0 4px 16px rgba(23,32,51,0.12);
 
   /* Transitions */
   --transition-fast: 0.15s ease;
@@ -351,6 +356,18 @@ body {
 
 .btn-danger:hover { background: #b91c1c; border-color: #b91c1c; }
 
+/* CTA 强调按钮：关键动作（新增/保存/上传）用橙色突出 */
+.btn-cta {
+  background: var(--cta);
+  border-color: var(--cta);
+  color: white;
+}
+
+.btn-cta:hover {
+  background: var(--cta-hover);
+  border-color: var(--cta-hover);
+}
+
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -522,9 +539,9 @@ select:focus { border-color: var(--accent); }
 
 /* === 顶部导航（移动端主界面） === */
 .mobile-topbar {
-  background: linear-gradient(135deg, #1e40af 0%, #2563eb 55%, #3b82f6 100%);
+  background: linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 55%, #3b82f6 100%);
   color: #fff;
-  box-shadow: 0 2px 12px rgba(37, 99, 235, 0.25);
+  box-shadow: 0 2px 12px rgba(29, 78, 216, 0.3);
 }
 
 /* === 底部固定操作栏（移动端） === */

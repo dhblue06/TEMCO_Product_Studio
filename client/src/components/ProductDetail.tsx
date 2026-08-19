@@ -619,7 +619,7 @@ const getSlots = (count: number) => {
             🔄 同步
           </button>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>{saving ? '保存中...' : '💾 保存'}</button>
+          <button className="btn btn-cta btn-sm" onClick={handleSave} disabled={saving}>{saving ? '保存中...' : '💾 保存'}</button>
           <button className="btn btn-danger btn-sm" onClick={async () => {
             const ok = await confirm(`确定删除 ${product.reference}？`, { title: '删除商品', danger: true });
             if (!ok) return;

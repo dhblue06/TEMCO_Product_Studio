@@ -612,7 +612,7 @@ export default function MobileCapturePage() {
 
           {/* 新建会话：sticky 常驻顶部，避免会话列表长时往下拉很久 */}
           <div style={{ position: 'sticky', top: 36, zIndex: 40, background: 'var(--bg-primary)', margin: '0 -20px', padding: '8px 20px', borderBottom: '1px solid var(--border-color)' }}>
-            <button type="button" className="btn btn-primary" style={{ width: '100%', padding: 12, fontSize: 15 }} onClick={() => setShowNewSessionForm(v => !v)}>
+            <button type="button" className="btn btn-cta" style={{ width: '100%', padding: 12, fontSize: 15 }} onClick={() => setShowNewSessionForm(v => !v)}>
               {showNewSessionForm ? '− ' + t('session.collapse') : t('session.new')}
             </button>
             {showNewSessionForm && (
@@ -899,7 +899,7 @@ export default function MobileCapturePage() {
                     {showFixedColorsEditor && (
                       <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
                         <ColorSelector selected={editingFixedColors} onChange={setEditingFixedColors} multiple options={websiteColors} />
-                        <button type="button" className="btn btn-primary" disabled={savingFixedColors} onClick={() => saveFixedColors(editingFixedColors)} style={{ padding: 10 }}>
+                        <button type="button" className="btn btn-cta" disabled={savingFixedColors} onClick={() => saveFixedColors(editingFixedColors)} style={{ padding: 10 }}>
                           {savingFixedColors ? t('common.loading') : t('capture.fixedColorsSave')}
                         </button>
                       </div>
@@ -954,7 +954,7 @@ export default function MobileCapturePage() {
           </button>
           <button type="button" className="btn mobile-btn" onClick={saveDraft} disabled={saving} style={{ flex: 1 }}>{t('capture.saveDraft')}</button>
           <button type="button" className="btn mobile-btn" onClick={submit} disabled={saving} style={{ flex: 1 }}>{t('capture.submit')}</button>
-          <button type="button" className="btn btn-primary mobile-btn" onClick={saveAndNext} disabled={saving} style={{ flex: 1.4 }}>
+          <button type="button" className="btn btn-cta mobile-btn" onClick={saveAndNext} disabled={saving} style={{ flex: 1.4 }}>
             {saving ? t('common.loading') : t('capture.saveAndNext')}
           </button>
         </div>
@@ -1023,7 +1023,7 @@ function NewSessionForm({ onStart, loading }: { onStart: (area: string, notes: s
       <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('session.new')}</div>
       <input value={area} onChange={e => setArea(e.target.value)} placeholder={t('session.name')} style={fieldStyle} />
       <input value={notes} onChange={e => setNotes(e.target.value)} placeholder={t('capture.notesPh')} style={fieldStyle} />
-      <button type="button" className="btn btn-primary" disabled={loading} onClick={() => onStart(area.trim(), notes.trim())} style={{ padding: 12 }}>
+      <button type="button" className="btn btn-cta" disabled={loading} onClick={() => onStart(area.trim(), notes.trim())} style={{ padding: 12 }}>
         {loading ? t('common.loading') : t('session.new')}
       </button>
     </div>
@@ -1208,7 +1208,7 @@ function NewProductModal({ prefill, websiteColors, colorHex, colorTexture, sessi
         {/* 固定底部按钮 */}
         <div style={{ display: 'flex', gap: 8, padding: '10px 16px 14px', borderTop: '1px solid var(--border-color)', flexShrink: 0 }}>
           <button type="button" className="btn" onClick={onClose} disabled={saving} style={{ flex: 1, padding: 12 }}>{t('common.cancel')}</button>
-          <button type="button" className="btn btn-primary" onClick={submit} disabled={saving} style={{ flex: 1.5, padding: 12 }}>
+          <button type="button" className="btn btn-cta" onClick={submit} disabled={saving} style={{ flex: 1.5, padding: 12 }}>
             {saving ? t('common.loading') : t('new.create')}
           </button>
         </div>
