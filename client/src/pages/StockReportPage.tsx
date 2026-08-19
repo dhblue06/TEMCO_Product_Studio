@@ -1,4 +1,4 @@
-// 桌面端缺货管理页（v1.7）：红色小标 → 缺货明细 → 网站信息对比 → 一键同步库存
+// 桌面端缺货管理页（v1.7）：红色小标 → 缺货明细 → 网站信息对比 → 已补货标记
 import React, { useCallback, useEffect, useState } from 'react';
 import { stockReportApi } from '../services/api';
 import { useToast } from '../components/ui/ToastProvider';
@@ -47,8 +47,6 @@ export function StockReportPage({ onClose }: { onClose: () => void }) {
   const [items, setItems] = useState<ReportItem[]>([]);
   const [summary, setSummary] = useState<{ count: number }>({ count: 0 });
   const [loading, setLoading] = useState(false);
-  const [syncing, setSyncing] = useState<number | null>(null);
-  const [syncAllBusy, setSyncAllBusy] = useState(false);
 
   const load = useCallback(async (status: StatusFilter) => {
     setLoading(true);
@@ -65,34 +63,6 @@ export function StockReportPage({ onClose }: { onClose: () => void }) {
   }, []);
 
   useEffect(() => { load(filter); }, [filter, load]);
-
-  const syncOne = async (id: number) => {
-    setSyncing(id);
-    try {
-      const res = await stockReportApi.sync(id);
-      if (res.success) { success('✅ 已同步到网站'); load(filter); }
-      else toastError(res.error || '同步失败');
-    } catch (e: any) {
-      toastError('同步失败: ' + e.message);
-    } finally {
-      setSyncing(null);
-    }
-  };
-
-  const syncAll = async () => {
-    const ok = await confirm('将全部待处理缺货上报的库存同步到 PrestaShop 网站？', { title: '一键同步库存' });
-    if (!ok) return;
-    setSyncAllBusy(true);
-    try {
-      const res = await stockReportApi.syncAll();
-      if (res.success) { success(res.message || '同步完成'); load(filter); }
-      else toastError(res.error || '同步失败');
-    } catch (e: any) {
-      toastError('同步失败: ' + e.message);
-    } finally {
-      setSyncAllBusy(false);
-    }
-  };
 
   const resolveOne = async (it: ReportItem) => {
     const ok = await confirm(`确认 ${it.reference} 已补货？将从缺货列表中移除。`, { title: '标记已补货' });
@@ -122,13 +92,7 @@ export function StockReportPage({ onClose }: { onClose: () => void }) {
       {/* 顶栏 */}
       <div className="mobile-topbar" style={{ padding: '10px 20px', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontWeight: 700 }}>📉 缺货管理 {summary.count > 0 && <span style={{ background: '#ef4444', color: '#fff', borderRadius: 10, padding: '1px 8px', fontSize: 12, marginLeft: 6 }}>{summary.count}</span>}</span>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <button type="button" className="btn btn-sm" onClick={syncAll} disabled={syncAllBusy || items.filter(i => i.status === 'active' && i.sync_status !== 'synced').length === 0}
-            style={{ background: 'rgba(255,255,255,.18)', color: '#fff', border: '1px solid rgba(255,255,255,.35)' }}>
-            {syncAllBusy ? '同步中...' : `🚀 一键同步（${items.filter(i => i.status === 'active' && i.sync_status !== 'synced').length}）`}
-          </button>
-          <button type="button" className="btn btn-sm" onClick={onClose} style={{ background: 'rgba(255,255,255,.18)', color: '#fff', border: '1px solid rgba(255,255,255,.35)' }}>关闭</button>
-        </div>
+        <button type="button" className="btn btn-sm" onClick={onClose} style={{ background: 'rgba(255,255,255,.18)', color: '#fff', border: '1px solid rgba(255,255,255,.35)' }}>关闭</button>
       </div>
 
       {/* 筛选 */}
@@ -190,13 +154,7 @@ export function StockReportPage({ onClose }: { onClose: () => void }) {
 
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {it.status === 'active' && (
-                    <>
-                      <button type="button" className="btn btn-cta btn-sm" disabled={syncing === it.id || !it.prestashop_product_id}
-                        onClick={() => syncOne(it.id)} style={{ minWidth: 90 }}>
-                        {syncing === it.id ? '同步中...' : it.prestashop_product_id ? '🚀 同步到网站' : '未绑定网站'}
-                      </button>
-                      <button type="button" className="btn btn-sm" onClick={() => resolveOne(it)}>✅ 已补货</button>
-                    </>
+                    <button type="button" className="btn btn-sm" onClick={() => resolveOne(it)}>✅ 已补货</button>
                   )}
                   <button type="button" className="btn btn-sm" style={{ color: '#dc2626' }} onClick={() => removeOne(it)}>删除</button>
                 </div>
