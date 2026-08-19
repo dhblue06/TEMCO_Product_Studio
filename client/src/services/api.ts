@@ -125,6 +125,14 @@ export const productsApi = {
     });
   },
 
+  // 批量更新分类
+  batchUpdateCategory(references: string[], category: string) {
+    return request<any>('/products/batch-category', {
+      method: 'POST',
+      body: JSON.stringify({ references, category }),
+    });
+  },
+
   // 获取分类列表
   getCategories() {
     return request<any>('/products/meta/categories');

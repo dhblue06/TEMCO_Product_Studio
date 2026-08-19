@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import TopBar from './components/TopBar';
 import LeftPanel from './components/LeftPanel';
 import ProductTable from './components/ProductTable';
@@ -33,6 +33,8 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [selectedRef, setSelectedRef] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [searchInput, setSearchInput] = useState(''); // 输入框即时值（防抖后才更新 search）
+  const searchTimerRef = useRef<number | null>(null);
   const [statusFilter, setStatusFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [brandFilter, setBrandFilter] = useState('');
@@ -146,9 +148,37 @@ function App() {
   }, [fetchProducts]);
 
   const handleSearchChange = (value: string) => {
-    setSearch(value);
+    setSearchInput(value); // 即时更新输入框
+    // 300ms 防抖后再触发搜索请求
+    if (searchTimerRef.current) window.clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = window.setTimeout(() => {
+      setSearch(value);
+      setPage(1);
+    }, 300);
+  };
+
+  // 组件卸载时清理防抖定时器
+  useEffect(() => {
+    return () => { if (searchTimerRef.current) window.clearTimeout(searchTimerRef.current); };
+  }, []);
+
+  /** 一键清除所有筛选条件 */
+  const clearAllFilters = () => {
+    setSearch('');
+    setSearchInput('');
+    setStatusFilter('');
+    setCategoryFilter('');
+    setBrandFilter('');
+    setDateFilter('');
+    setWebsiteFilter('');
+    setScanMatchedRefs(null);
     setPage(1);
   };
+
+  // 是否有激活的筛选（用于显示"清除筛选"按钮）
+  const hasActiveFilters = !!search
+    || !!statusFilter || !!categoryFilter || !!brandFilter || !!dateFilter || !!websiteFilter
+    || (scanMatchedRefs?.length ?? 0) > 0;
 
   const handleStatusFilter = (status: string) => {
     setStatusFilter(status === statusFilter ? '' : status);
@@ -352,7 +382,7 @@ function App() {
               className="search-input"
               type="text"
               placeholder="搜索 reference / SKU / 名称 / 分类 / 型号..."
-              value={search}
+              value={searchInput}
               onChange={(e) => handleSearchChange(e.target.value)}
             />
             <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}
@@ -382,6 +412,12 @@ function App() {
             <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
               {pagination.total} 个商品
             </span>
+            {hasActiveFilters && (
+              <button className="btn btn-sm" onClick={clearAllFilters} title="清除搜索和所有筛选条件"
+                style={{ fontSize: 11, borderColor: 'var(--accent)', color: 'var(--accent)' }}>
+                ✕ 清除筛选
+              </button>
+            )}
             <button className="btn btn-sm" style={{ fontSize: 11 }}
               onClick={async () => {
                 const ok = await confirm('同步所有已上传 PrestaShop 商品的价格？', { title: '同步价格', danger: false });
@@ -394,9 +430,74 @@ function App() {
               💶 同步价格
             </button>
             {selectedRefs.size > 0 && (
-              <button className="btn btn-danger btn-sm" onClick={handleBatchDelete}>
-                🗑 删除选中 ({selectedRefs.size})
-              </button>
+              <>
+                <select
+                  value=""
+                  onChange={async (e) => {
+                    const status = e.target.value;
+                    if (!status) return;
+                    const ok = await confirm(`将选中的 ${selectedRefs.size} 个商品状态改为「${status}」？`, { title: '批量改状态' });
+                    if (!ok) { e.target.value = ''; return; }
+                    try {
+                      const res = await productsApi.batchUpdateStatus(Array.from(selectedRefs), status);
+                      if (res.success) {
+                        success(res.message || `已更新 ${selectedRefs.size} 个商品`);
+                        setSelectedRefs(new Set());
+                        fetchProducts();
+                      } else {
+                        toastError(res.error || '批量改状态失败');
+                      }
+                    } catch (err: any) {
+                      toastError('批量改状态失败: ' + err.message);
+                    } finally {
+                      e.target.value = '';
+                    }
+                  }}
+                  style={{ fontSize: 11, padding: '4px 8px', borderRadius: 4, border: '1px solid var(--accent)', color: 'var(--accent)', background: 'var(--bg-secondary)', cursor: 'pointer' }}
+                  title="批量修改选中商品的状态"
+                >
+                  <option value="">📋 批量改状态</option>
+                  <option value="待处理">待处理</option>
+                  <option value="已匹配图片">已匹配图片</option>
+                  <option value="双语文案已生成">双语文案已生成</option>
+                  <option value="SEO通过">SEO通过</option>
+                  <option value="已上传">已上传</option>
+                  <option value="已上传图片">已上传图片</option>
+                  <option value="已下架">已下架</option>
+                </select>
+                <select
+                  value=""
+                  onChange={async (e) => {
+                    const category = e.target.value;
+                    if (category === undefined || category === null || category === '') return;
+                    const ok = await confirm(`将选中的 ${selectedRefs.size} 个商品分类改为「${category}」？`, { title: '批量改分类' });
+                    if (!ok) { e.target.value = ''; return; }
+                    try {
+                      const res = await productsApi.batchUpdateCategory(Array.from(selectedRefs), category);
+                      if (res.success) {
+                        success(res.message || `已更新 ${selectedRefs.size} 个商品分类`);
+                        setSelectedRefs(new Set());
+                        fetchProducts();
+                        fetchMeta();
+                      } else {
+                        toastError(res.error || '批量改分类失败');
+                      }
+                    } catch (err: any) {
+                      toastError('批量改分类失败: ' + err.message);
+                    } finally {
+                      e.target.value = '';
+                    }
+                  }}
+                  style={{ fontSize: 11, padding: '4px 8px', borderRadius: 4, border: '1px solid var(--accent)', color: 'var(--accent)', background: 'var(--bg-secondary)', cursor: 'pointer', maxWidth: 160 }}
+                  title="批量修改选中商品的分类"
+                >
+                  <option value="">📁 批量改分类</option>
+                  {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <button className="btn btn-danger btn-sm" onClick={handleBatchDelete}>
+                  🗑 删除选中 ({selectedRefs.size})
+                </button>
+              </>
             )}
           </div>
           {scanProgress && (

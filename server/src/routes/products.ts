@@ -397,6 +397,37 @@ router.post('/batch-status', (req: Request, res: Response) => {
   }
 });
 
+// 批量更新商品分类
+router.post('/batch-category', (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const { references, category } = req.body;
+
+    if (!Array.isArray(references) || references.length === 0 || category === undefined || category === null) {
+      return res.status(400).json({ success: false, error: '请提供商品编号列表和目标分类' });
+    }
+
+    const now = new Date().toISOString();
+    const updateStmt = db.prepare('UPDATE products SET category = ?, updated_at = ? WHERE reference = ?');
+
+    const updateMany = db.transaction((refs: string[]) => {
+      for (const ref of refs) {
+        updateStmt.run(category, now, ref);
+      }
+    });
+
+    updateMany(references);
+
+    res.json({
+      success: true,
+      message: `已更新 ${references.length} 个商品分类为 ${category || '(空)'}`
+    });
+  } catch (error: any) {
+    console.error('Error batch updating category:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // 删除商品
 router.delete('/:reference', (req: Request, res: Response) => {
   try {
