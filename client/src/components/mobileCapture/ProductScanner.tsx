@@ -11,7 +11,7 @@ interface Props {
 export function ProductScanner({ onDetected }: Props) {
   const { t } = useI18n();
   const { warning: toastWarning } = useToast();
-  const { videoRef, start, stop, active, liveSupported, error, capturePhotoScan } = useBarcodeScanner(onDetected);
+  const { videoRef, start, stop, active, liveSupported, error, torchSupported, torchOn, toggleTorch, capturePhotoScan } = useBarcodeScanner(onDetected);
   const [photoScanning, setPhotoScanning] = useState(false);
 
   const handlePhotoScan = async () => {
@@ -41,12 +41,20 @@ export function ProductScanner({ onDetected }: Props) {
         </button>
       </div>
       {active && (
-        <video
-          ref={videoRef}
-          style={{ width: '100%', borderRadius: 12, background: '#000', maxHeight: 300, objectFit: 'cover' }}
-          muted
-          playsInline
-        />
+        <div style={{ position: 'relative', overflow: 'hidden', borderRadius: 12, background: '#000' }}>
+          <video
+            ref={videoRef}
+            style={{ width: '100%', display: 'block', maxHeight: 300, objectFit: 'cover' }}
+            muted
+            playsInline
+          />
+          <div aria-hidden="true" style={{ position: 'absolute', left: '8%', right: '8%', top: '36%', height: '28%', border: '2px solid #22c55e', borderRadius: 10, boxShadow: '0 0 0 999px rgba(0,0,0,.25)' }} />
+        </div>
+      )}
+      {active && torchSupported && (
+        <button type="button" className="btn btn-sm" onClick={toggleTorch} aria-pressed={torchOn} title="补光灯 / Linterna">
+          {torchOn ? '🔦 关闭补光' : '🔦 开启补光'}
+        </button>
       )}
       {error && <div style={{ fontSize: 12, color: '#dc2626' }}>⚠️ {error}</div>}
       <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>

@@ -26,6 +26,16 @@ interface ReportItem {
   created_at: string;
   updated_at: string;
   local_name: string;
+  ps_id?: number | string;
+}
+
+function WebsiteProductImage({ productId, name }: { productId: number; name: string }) {
+  const [failed, setFailed] = useState(false);
+  const boxStyle: React.CSSProperties = { width: 92, height: 92, flex: '0 0 92px', borderRadius: 10, border: '1px solid var(--border-color)', background: 'var(--bg-hover)' };
+  if (!productId || failed) {
+    return <div style={{ ...boxStyle, display: 'grid', placeItems: 'center', color: 'var(--text-muted)', fontSize: 11 }}>暂无图片</div>;
+  }
+  return <img src={stockReportApi.websiteImageUrl(productId)} alt={name} loading="lazy" onError={() => setFailed(true)} style={{ ...boxStyle, objectFit: 'contain' }} />;
 }
 
 const STATUS_LABEL: Record<string, { label: string; color: string; bg: string }> = {
@@ -87,6 +97,87 @@ export function StockReportPage({ onClose }: { onClose: () => void }) {
       : it.report_type === 'boxes' ? it.quantity * (it.box_size || 0)
       : 0;
 
+  const loadAllActive = async (): Promise<ReportItem[]> => {
+    const res = await stockReportApi.list('active');
+    if (!res.success) throw new Error(res.error || '读取缺货产品失败');
+    return res.data || [];
+  };
+
+  const exportExcel = async () => {
+    try {
+      const rows = await loadAllActive();
+      if (rows.length === 0) { toastError('当前没有待处理缺货产品'); return; }
+      const XLSX = await import('xlsx');
+      const data = rows.map((it, index) => ({
+        序号: index + 1,
+        产品编号: it.reference,
+        产品名称: it.product_name || it.local_name || '',
+        条码: it.barcode || '',
+        缺货状态: TYPE_LABEL[it.report_type] || it.report_type,
+        上报数量: it.report_type === 'sold_out' ? 0 : it.quantity,
+        单位: it.report_type === 'boxes' ? '箱' : '件',
+        每箱件数: it.report_type === 'boxes' ? it.box_size : '',
+        总件数: totalPieces(it),
+        网站库存: it.website_quantity ?? '未知',
+        上报人: it.operator_name || '',
+        设备: it.device_name || '',
+        备注: it.note || '',
+        上报时间: it.created_at || '',
+      }));
+      const sheet = XLSX.utils.json_to_sheet(data);
+      sheet['!cols'] = [6, 16, 34, 18, 12, 10, 8, 10, 10, 10, 12, 12, 28, 20].map(wch => ({ wch }));
+      const book = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(book, sheet, '待处理缺货产品');
+      const date = new Date().toISOString().slice(0, 10);
+      XLSX.writeFile(book, `TEMCO_缺货产品_${date}.xlsx`);
+      success(`已导出 ${rows.length} 个缺货产品`);
+    } catch (e: any) {
+      toastError(`导出 Excel 失败：${e.message}`);
+    }
+  };
+
+  const escapeHtml = (value: unknown) => String(value ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+
+  const exportPdf = async () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) { toastError('浏览器阻止了打印窗口，请允许弹出窗口后重试'); return; }
+    printWindow.document.write('<p style="font-family:sans-serif;padding:24px">正在生成缺货清单…</p>');
+    try {
+      const rows = await loadAllActive();
+      if (rows.length === 0) { printWindow.close(); toastError('当前没有待处理缺货产品'); return; }
+      const date = new Date().toLocaleString('zh-CN');
+      const body = rows.map((it, index) => {
+        const psId = Number(it.prestashop_product_id || it.ps_id || 0);
+        const imageUrl = psId ? stockReportApi.websiteImageUrl(psId) : '';
+        return `<tr>
+          <td>${index + 1}</td>
+          <td>${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="">` : ''}</td>
+          <td><b>${escapeHtml(it.reference)}</b><br>${escapeHtml(it.product_name || it.local_name || '')}<br><small>${escapeHtml(it.barcode)}</small></td>
+          <td>${escapeHtml(TYPE_LABEL[it.report_type] || it.report_type)}</td>
+          <td>${it.report_type === 'boxes' ? `${it.quantity}箱 × ${it.box_size || 0}` : `${totalPieces(it)}件`}</td>
+          <td>${totalPieces(it)}</td>
+          <td>${escapeHtml(it.website_quantity ?? '未知')}</td>
+          <td>${escapeHtml(it.operator_name || '')}<br><small>${escapeHtml(it.created_at?.slice(0, 16).replace('T', ' '))}</small></td>
+          <td>${escapeHtml(it.note || '')}</td>
+        </tr>`;
+      }).join('');
+      printWindow.document.open();
+      printWindow.document.write(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>TEMCO 缺货产品清单</title>
+        <style>
+          @page{size:A4 landscape;margin:10mm} body{font-family:Arial,"Microsoft YaHei",sans-serif;color:#111;margin:0} h1{font-size:20px;margin:0 0 4px}.meta{font-size:11px;color:#555;margin-bottom:12px}table{width:100%;border-collapse:collapse;font-size:10px}th,td{border:1px solid #bbb;padding:5px;text-align:left;vertical-align:middle}th{background:#eee}img{width:48px;height:48px;object-fit:contain}small{color:#555}.actions{margin:12px 0}@media print{.actions{display:none}}
+        </style></head><body><h1>TEMCO 待处理缺货产品清单</h1><div class="meta">导出时间：${escapeHtml(date)} · 共 ${rows.length} 个产品</div>
+        <div class="actions"><button onclick="window.print()" style="padding:8px 18px">打印 / 另存为 PDF</button></div>
+        <table><thead><tr><th>#</th><th>图片</th><th>产品</th><th>状态</th><th>上报数量</th><th>总件数</th><th>网站库存</th><th>上报人/时间</th><th>备注</th></tr></thead><tbody>${body}</tbody></table>
+        <script>window.addEventListener('load',()=>setTimeout(()=>window.print(),500));<\/script></body></html>`);
+      printWindow.document.close();
+    } catch (e: any) {
+      printWindow.close();
+      toastError(`生成 PDF 失败：${e.message}`);
+    }
+  };
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'var(--bg-primary)', zIndex: 200, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* 顶栏 */}
@@ -96,10 +187,16 @@ export function StockReportPage({ onClose }: { onClose: () => void }) {
       </div>
 
       {/* 筛选 */}
-      <div style={{ padding: '10px 20px', display: 'flex', gap: 6, borderBottom: '1px solid var(--border-color)', background: 'var(--bg-secondary)' }}>
-        {([['active', `待处理（${summary.count}）`], ['resolved', '已补货'], ['all', '全部']] as [StatusFilter, string][]).map(([s, label]) => (
-          <button key={s} className={filter === s ? 'btn btn-primary btn-sm' : 'btn btn-sm'} onClick={() => setFilter(s)}>{label}</button>
-        ))}
+      <div style={{ padding: '10px 20px', display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-secondary)' }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {([['active', `待处理（${summary.count}）`], ['resolved', '已补货'], ['all', '全部']] as [StatusFilter, string][]).map(([s, label]) => (
+            <button key={s} className={filter === s ? 'btn btn-primary btn-sm' : 'btn btn-sm'} onClick={() => setFilter(s)}>{label}</button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <button type="button" className="btn btn-sm" onClick={exportExcel}>📊 导出 Excel</button>
+          <button type="button" className="btn btn-sm" onClick={exportPdf}>📄 导出 PDF</button>
+        </div>
       </div>
 
       {/* 列表 */}
@@ -115,8 +212,11 @@ export function StockReportPage({ onClose }: { onClose: () => void }) {
           {items.map(it => {
             const st = STATUS_LABEL[it.status] || STATUS_LABEL.active;
             const typeLabel = TYPE_LABEL[it.report_type] || it.report_type;
+            const websiteProductId = Number(it.prestashop_product_id || it.ps_id || 0);
             return (
-              <div key={it.id} className="ui-card" style={{ display: 'flex', flexDirection: 'column', gap: 8, borderLeft: `4px solid ${it.status === 'active' ? '#ef4444' : it.status === 'synced' ? '#16a34a' : '#d1d5db'}` }}>
+              <div key={it.id} className="ui-card" style={{ display: 'flex', gap: 12, alignItems: 'flex-start', borderLeft: `4px solid ${it.status === 'active' ? '#ef4444' : it.status === 'synced' ? '#16a34a' : '#d1d5db'}` }}>
+                <WebsiteProductImage productId={websiteProductId} name={it.product_name || it.local_name || it.reference} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 15 }}>{it.product_name || it.local_name || it.reference}</div>
@@ -142,9 +242,6 @@ export function StockReportPage({ onClose }: { onClose: () => void }) {
                   <span style={{ padding: '4px 10px', borderRadius: 8, background: 'var(--bg-hover)' }}>
                     总件数：<b>{it.report_type === 'boxes' ? `${it.quantity}×${it.box_size || 0}=${totalPieces(it)}` : totalPieces(it)}</b>
                   </span>
-                  <span style={{ padding: '4px 10px', borderRadius: 8, background: 'var(--bg-hover)' }}>
-                    网站当前库存：<b style={{ color: it.website_quantity === null ? 'var(--text-muted)' : 'var(--text-secondary)' }}>{it.website_quantity === null ? '未知' : it.website_quantity}</b>
-                  </span>
                 </div>
 
                 {it.note && <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>📝 {it.note}</div>}
@@ -157,6 +254,7 @@ export function StockReportPage({ onClose }: { onClose: () => void }) {
                     <button type="button" className="btn btn-sm" onClick={() => resolveOne(it)}>✅ 已补货</button>
                   )}
                   <button type="button" className="btn btn-sm" style={{ color: '#dc2626' }} onClick={() => removeOne(it)}>删除</button>
+                </div>
                 </div>
               </div>
             );

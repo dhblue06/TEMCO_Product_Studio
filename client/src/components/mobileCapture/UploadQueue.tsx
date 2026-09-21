@@ -6,12 +6,15 @@ export type QueueItemStatus = 'pending' | 'uploading' | 'done' | 'failed';
 
 export interface UploadQueueItem {
   id: string;
+  captureId: number;
   filename: string;
   role: string;
+  colors: string[];
+  sequence: number;
   status: QueueItemStatus;
   error?: string;
   previewUrl?: string;
-  /** 原始文件对象（仅失败重试时保留，成功/取消后释放） */
+  /** 原始文件对象（失败重试及页面恢复时保留，成功后释放） */
   file?: File;
 }
 

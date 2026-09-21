@@ -7,6 +7,9 @@ type Entry = { zh: string; es: string };
 
 // ===== 字典 =====
 const DICT: Record<string, Entry> = {
+  'stock.pauseSync': { zh: '正在同步，点击暂停', es: 'Sincronizando, pulsar para pausar' },
+  'stock.saveFailed': { zh: '手机保存失败，请勿关闭页面', es: 'Error al guardar. No cierres la página' },
+  'stock.reviewConflict': { zh: '恢复为草稿，核对后重新提交', es: 'Restaurar borrador y verificar antes de enviar' },
   // 通用
   'app.title': { zh: 'TEMCO', es: 'TEMCO' },
   'common.save': { zh: '保存', es: 'Guardar' },
@@ -20,6 +23,7 @@ const DICT: Record<string, Entry> = {
 
   // 手机端入口（hub）
   'hub.subtitle': { zh: '选择你的工作入口', es: 'Elige tu tarea' },
+  'hub.question': { zh: '今天要做什么？', es: '¿Qué vamos a hacer?' },
   'hub.hint': { zh: '各入口共用同一账号 · 选择后进入对应工作台', es: 'Misma cuenta para todos · Elige y empieza' },
   'hub.backHome': { zh: '入口', es: 'Menú' },
   'hub.capture': { zh: '商品采集', es: 'Captura' },
@@ -287,6 +291,22 @@ const DICT: Record<string, Entry> = {
   'network.connected': { zh: '已连接电脑', es: 'Conectado al PC' },
   'network.disconnected': { zh: '无法连接电脑', es: 'Sin conexión al PC' },
   'queue.pendingCount': { zh: '待上传', es: 'Pendientes' },
+  'queue.waitBeforeSubmit': { zh: '照片已安全保存在本机，请等待网络恢复并完成上传后再提交', es: 'Las fotos están guardadas en el móvil. Espera a que vuelva la conexión y termine la subida antes de enviar' },
+  'draft.savedLocally': { zh: '草稿已保存在本机，联网后自动同步', es: 'Borrador guardado en el móvil; se sincronizará al recuperar la conexión' },
+  'draft.localPending': { zh: '草稿待同步', es: 'Borrador pendiente' },
+  'draft.restored': { zh: '已恢复本机保存的采集进度', es: 'Se ha recuperado el progreso guardado en el móvil' },
+  'stock.savedLocally': { zh: '缺货上报已保存在本机，将自动同步', es: 'Reporte guardado en el móvil; se sincronizará automáticamente' },
+  'stock.pendingSync': { zh: '待同步上报', es: 'Reportes pendientes' },
+  'stock.offlineResult': { zh: '当前使用本机缓存的商品资料', es: 'Usando los datos del producto guardados en el móvil' },
+  'stock.draftRestored': { zh: '已恢复未完成的缺货上报', es: 'Se ha recuperado el reporte sin terminar' },
+  'stock.retrySync': { zh: '立即同步', es: 'Sincronizar ahora' },
+  'stock.downloadCatalog': { zh: '下载离线商品目录', es: 'Descargar catálogo offline' },
+  'stock.updateCatalog': { zh: '更新离线目录', es: 'Actualizar catálogo offline' },
+  'stock.catalogReady': { zh: '离线商品', es: 'Productos offline' },
+  'stock.catalogDownloaded': { zh: '离线目录下载完成', es: 'Catálogo offline descargado' },
+  'stock.catalogDownloadFail': { zh: '离线目录下载失败', es: 'Error al descargar el catálogo offline' },
+  'network.onlineShort': { zh: '在线', es: 'En línea' },
+  'network.offlineShort': { zh: '离线', es: 'Sin conexión' },
 
   // alert 消息
   'alert.needSession': { zh: '请先创建采集会话', es: 'Cree primero una sesión' },

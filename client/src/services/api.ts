@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from './network';
 const API_BASE = '/api';
 
 /** 延迟等待（毫秒） */
@@ -22,7 +23,7 @@ async function requestWithRetry<T>(endpoint: string, options: RequestInit, retri
   for (let attempt = 0; attempt <= retries; attempt++) {
     let fatal = false; // 4xx 业务错误：不再重试
     try {
-      const response = await fetch(url, { ...options, headers });
+      const response = await fetchWithTimeout(url, { ...options, headers });
       if (response.ok) return response.json();
       const error = await response.json().catch(() => ({ error: response.statusText }));
       const msg = error.error || `HTTP ${response.status}`;
@@ -32,7 +33,7 @@ async function requestWithRetry<T>(endpoint: string, options: RequestInit, retri
       }
       lastErr = new Error(msg); // 5xx → 记录，稍后重试
     } catch (e: any) {
-      if (fatal) throw e; // 4xx：直接抛给调用方
+      if (fatal || options.signal?.aborted) throw e;
       lastErr = e; // 网络错误（TypeError）或 5xx：重试
     }
     if (attempt < retries) {
@@ -44,7 +45,7 @@ async function requestWithRetry<T>(endpoint: string, options: RequestInit, retri
 
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${endpoint}`;
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     ...options,
     headers: {
       // FormData 时由浏览器自动生成 multipart boundary，不能手动设 Content-Type
@@ -55,7 +56,7 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || `HTTP ${response.status}`);
+    throw Object.assign(new Error(error.error || `HTTP ${response.status}`), { status: response.status });
   }
 
   return response.json();
@@ -63,6 +64,10 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
 
 // 商品相关 API
 export const productsApi = {
+  create(data: { reference: string; name: string; ean13?: string; price: number; category: string; brand: string; prestashopCategoryId: number; prestashopManufacturerId: number }) {
+    return request<any>('/products', { method: 'POST', body: JSON.stringify(data) });
+  },
+
   // 获取商品列表
   getList(params?: {
     search?: string;
@@ -375,7 +380,7 @@ export function getMobileToken(): string | null {
 
 function authFetch(endpoint: string, options?: RequestInit): Promise<Response> {
   const token = getMobileToken();
-  return fetch(`${API_BASE}${endpoint}`, {
+  return fetchWithTimeout(`${API_BASE}${endpoint}`, {
     ...options,
     headers: {
       ...(options?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
@@ -770,10 +775,10 @@ export const cajaCheckApi = {
     return `${API_BASE}/caja-check/batches/${id}/export?status=${status}`;
   },
   /** 勾选新品批量创建到网站（基础信息） */
-  uploadToWebsite(batchId: number, itemIds: number[]) {
+  uploadToWebsite(batchId: number, items: { itemId: number; categoryId?: number; manufacturerId?: number }[]) {
     return request<any>(`/caja-check/batches/${batchId}/upload-to-website`, {
       method: 'POST',
-      body: JSON.stringify({ itemIds }),
+      body: JSON.stringify({ items }),
     });
   },
   /** 价格同步：勾选商品网站价格更新为文件售价（以文件为准） */
@@ -787,15 +792,23 @@ export const cajaCheckApi = {
 
 // v1.7 缺货上报 API（手机扫码上报 + 网站红标 + 一键同步库存）
 export const stockReportApi = {
+  getOfflineCatalog() {
+    return request<any>('/stock-report/offline-catalog');
+  },
+  /** PrestaShop 网站商品主图（由本机服务安全代理） */
+  websiteImageUrl(prestashopProductId: number) {
+    return `${API_BASE}/stock-report/website-image/${prestashopProductId}`;
+  },
   /** 只读查产品（扫码/输条码，不创建记录） */
   find(query: string) {
     return request<any>(`/stock-report/find?query=${encodeURIComponent(query)}`);
   },
   /** 上传上报图片（拍照/相册，自动附加到上报记录） */
-  uploadImage(reportId: number, file: File) {
+  uploadImage(reportId: number, file: File, clientPhotoId?: string, signal?: AbortSignal) {
     const form = new FormData();
     form.append('image', file);
-    return request<any>(`/stock-report/${reportId}/upload-image`, { method: 'POST', body: form });
+    if (clientPhotoId) form.append('clientPhotoId', clientPhotoId);
+    return request<any>(`/stock-report/${reportId}/upload-image`, { method: 'POST', body: form, signal });
   },
   /** 删除上报图片 */
   removeImage(reportId: number, name: string) {
@@ -806,8 +819,8 @@ export const stockReportApi = {
     return `${API_BASE}/stock-report/${reportId}/image/${encodeURIComponent(name)}`;
   },
   /** 上报缺货（pieces/boxes/sold_out） */
-  create(data: { query?: string; productId?: number; reportType: 'pieces' | 'boxes' | 'sold_out'; quantity?: number; boxSize?: number; operatorName?: string; deviceName?: string; note?: string }) {
-    return request<any>('/stock-report', { method: 'POST', body: JSON.stringify(data) });
+  create(data: { clientId?: string; capturedAt?: number; query?: string; productId?: number; reportType: 'pieces' | 'boxes' | 'sold_out'; quantity?: number; boxSize?: number; operatorName?: string; deviceName?: string; note?: string }, signal?: AbortSignal) {
+    return request<any>('/stock-report', { method: 'POST', body: JSON.stringify(data), signal });
   },
   /** 缺货汇总（网站红标用） */
   getSummary() {

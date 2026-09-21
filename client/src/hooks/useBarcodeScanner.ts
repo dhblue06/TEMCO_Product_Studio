@@ -3,10 +3,51 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 
-const SUPPORTED_FORMATS = ['ean_13', 'ean_8', 'code_128', 'code_39', 'qr_code'];
+const SUPPORTED_FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39'];
 const MAX_DECODE_DIMENSION = 1500; // 解码前缩小的最大边长（ZXing 处理大图极慢）
-const NATIVE_TIMEOUT_MS = 3000;   // BarcodeDetector 3 秒无结果 → 转 ZXing（仅作 fallback 触发，不影响最终识别）
+const NATIVE_TIMEOUT_MS = 1200;
 const PHOTO_PICK_TIMEOUT_MS = 120000; // 兜底：仅在“拍照选择照片”阶段防止永久等待；解码本身不设超时
+const LIVE_CONFIRM_WINDOW_MS = 1400;
+const LIVE_COOLDOWN_MS = 1600;
+
+let nativeDetectorPromise: Promise<any | null> | null = null;
+
+async function getNativeDetector(): Promise<any | null> {
+  if (!('BarcodeDetector' in window)) return null;
+  if (!nativeDetectorPromise) {
+    nativeDetectorPromise = (async () => {
+      try {
+        const Detector = (window as any).BarcodeDetector;
+        const supported: string[] = typeof Detector.getSupportedFormats === 'function'
+          ? await Detector.getSupportedFormats()
+          : SUPPORTED_FORMATS;
+        const formats = SUPPORTED_FORMATS.filter(format => supported.includes(format));
+        return formats.length ? new Detector({ formats }) : null;
+      } catch {
+        return null;
+      }
+    })();
+  }
+  return nativeDetectorPromise;
+}
+
+function normalizeBarcode(value: string): string {
+  return String(value || '').replace(/[\s\u200B-\u200D\uFEFF]/g, '').trim();
+}
+
+function hasValidGtinChecksum(value: string): boolean {
+  if (!/^\d+$/.test(value) || ![8, 12, 13].includes(value.length)) return true;
+  const digits = value.split('').map(Number);
+  const check = digits.pop()!;
+  const sum = digits.reverse().reduce((total, digit, index) => total + digit * (index % 2 === 0 ? 3 : 1), 0);
+  return (10 - (sum % 10)) % 10 === check;
+}
+
+export function cleanDetectedBarcode(value: string | null | undefined): string | null {
+  const normalized = normalizeBarcode(value || '');
+  if (!normalized || normalized.length > 160 || !hasValidGtinChecksum(normalized)) return null;
+  return normalized;
+}
 
 /** secure context（HTTPS 或 localhost）下才可用实时摄像头 */
 function hasLiveCamera(): boolean {
@@ -28,24 +69,15 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-function detectNativeBarcode(source: HTMLVideoElement | HTMLImageElement): Promise<string | null> {
-  return new Promise((resolve) => {
-    if (!('BarcodeDetector' in window)) {
-      resolve(null);
-      return;
-    }
-    try {
-      const detector = new (window as any).BarcodeDetector({ formats: SUPPORTED_FORMATS });
-      withTimeout<any[]>(detector.detect(source), NATIVE_TIMEOUT_MS)
-        .then((results: any[]) => {
-          const r = results?.[0];
-          resolve(r?.rawValue || null);
-        })
-        .catch(() => resolve(null));
-    } catch {
-      resolve(null);
-    }
-  });
+async function detectNativeBarcode(source: HTMLVideoElement | HTMLImageElement): Promise<string | null> {
+  try {
+    const detector = await getNativeDetector();
+    if (!detector) return null;
+    const results = await withTimeout<any[]>(detector.detect(source), NATIVE_TIMEOUT_MS);
+    return cleanDetectedBarcode(results?.[0]?.rawValue);
+  } catch {
+    return null;
+  }
 }
 
 /** 把图片缩小到 MAX_DECODE_DIMENSION 以内并返回 <img> 元素（供 BarcodeDetector / ZXing 解码） */
@@ -85,7 +117,7 @@ async function decodeFromImage(img: HTMLImageElement): Promise<string | null> {
   try {
     const reader = new BrowserMultiFormatReader();
     const result = await reader.decodeFromImageElement(small);
-    return result?.getText?.() || null;
+    return cleanDetectedBarcode(result?.getText?.());
   } catch {
     return null;
   }
@@ -105,13 +137,25 @@ export interface BarcodeScannerState {
 export function useBarcodeScanner(onDetected: (text: string) => void) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const scannerControlsRef = useRef<{ stop: () => void } | null>(null);
+  const scanSessionRef = useRef(0);
+  const candidateRef = useRef<{ value: string; at: number; count: number }>({ value: '', at: 0, count: 0 });
+  const lastEmittedRef = useRef<{ value: string; at: number }>({ value: '', at: 0 });
   const [active, setActive] = useState(false);
   const [liveSupported, setLiveSupported] = useState(() => hasLiveCamera());
+  const [torchSupported, setTorchSupported] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
   const [error, setError] = useState('');
   const onDetectedRef = useRef(onDetected);
   onDetectedRef.current = onDetected;
 
   const stop = useCallback(() => {
+    scanSessionRef.current += 1;
+    scannerControlsRef.current?.stop();
+    scannerControlsRef.current = null;
+    candidateRef.current = { value: '', at: 0, count: 0 };
+    setTorchOn(false);
+    setTorchSupported(false);
     setActive(false);
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop());
@@ -122,7 +166,36 @@ export function useBarcodeScanner(onDetected: (text: string) => void) {
     }
   }, []);
 
+  const toggleTorch = useCallback(async () => {
+    const track = streamRef.current?.getVideoTracks()[0];
+    if (!track) return;
+    const next = !torchOn;
+    try {
+      await track.applyConstraints({ advanced: [{ torch: next }] } as any);
+      setTorchOn(next);
+    } catch {
+      setError('当前手机无法切换补光灯');
+    }
+  }, [torchOn]);
+
+  const confirmLiveDetection = useCallback((rawValue: string): void => {
+    const value = cleanDetectedBarcode(rawValue);
+    if (!value) return;
+    const now = Date.now();
+    const previous = candidateRef.current;
+    const count = previous.value === value && now - previous.at <= LIVE_CONFIRM_WINDOW_MS ? previous.count + 1 : 1;
+    candidateRef.current = { value, at: now, count };
+    if (count < 2) return;
+    const emitted = lastEmittedRef.current;
+    if (emitted.value === value && now - emitted.at < LIVE_COOLDOWN_MS) return;
+    lastEmittedRef.current = { value, at: now };
+    candidateRef.current = { value: '', at: 0, count: 0 };
+    onDetectedRef.current(value);
+  }, []);
+
   const start = useCallback(async () => {
+    stop();
+    const session = scanSessionRef.current;
     setError('');
     if (!hasLiveCamera()) {
       setLiveSupported(false);
@@ -132,11 +205,37 @@ export function useBarcodeScanner(onDetected: (text: string) => void) {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 30, max: 30 },
+        },
         audio: false,
       });
+      if (scanSessionRef.current !== session) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
       streamRef.current = stream;
       setActive(true);
+
+      const track = stream.getVideoTracks()[0];
+      if (track) {
+        try {
+          const capabilities = track.getCapabilities?.() as MediaTrackCapabilities & {
+            focusMode?: string[];
+            zoom?: { min: number; max: number; step?: number };
+          };
+          const advanced: Record<string, unknown> = {};
+          setTorchSupported(Boolean((capabilities as any)?.torch));
+          if (capabilities?.focusMode?.includes('continuous')) advanced.focusMode = 'continuous';
+          if (capabilities?.zoom && capabilities.zoom.max >= 1.25) {
+            advanced.zoom = Math.min(capabilities.zoom.max, Math.max(capabilities.zoom.min, 1.5));
+          }
+          if (Object.keys(advanced).length) await track.applyConstraints({ advanced: [advanced] } as MediaTrackConstraints);
+        } catch { /* 部分手机报告能力但拒绝约束，继续使用默认相机参数 */ }
+      }
 
       const video = videoRef.current;
       if (!video) return;
@@ -144,21 +243,18 @@ export function useBarcodeScanner(onDetected: (text: string) => void) {
       video.setAttribute('playsinline', 'true');
       await video.play().catch(() => {});
 
-      if ('BarcodeDetector' in window) {
+      const nativeDetector = await getNativeDetector();
+      if (scanSessionRef.current !== session) return;
+      if (nativeDetector) {
         // 原生 BarcodeDetector：rAF 循环
-        let running = true;
         let lastDetect = 0;
         const loop = async () => {
-          if (!running) return;
+          if (scanSessionRef.current !== session || !streamRef.current) return;
           const now = Date.now();
           if (video.readyState >= 2 && now - lastDetect > 250) {
             lastDetect = now;
             const value = await detectNativeBarcode(video);
-            if (value && running) {
-              onDetectedRef.current(value);
-              // 检测到后短暂暂停避免重复触发
-              await new Promise(r => setTimeout(r, 1200));
-            }
+            if (value && scanSessionRef.current === session) confirmLiveDetection(value);
           }
           requestAnimationFrame(loop);
         };
@@ -166,16 +262,19 @@ export function useBarcodeScanner(onDetected: (text: string) => void) {
       } else {
         // ZXing fallback
         const reader = new BrowserMultiFormatReader();
-        reader.decodeFromVideoDevice(undefined, video, (result) => {
-          if (result && result.getText()) {
-            onDetectedRef.current(result.getText());
-          }
+        void reader.decodeFromStream(stream, video, (result) => {
+          if (result?.getText() && scanSessionRef.current === session) confirmLiveDetection(result.getText());
+        }).then(controls => {
+          if (scanSessionRef.current === session) scannerControlsRef.current = controls;
+          else controls.stop();
+        }).catch(() => {
+          if (scanSessionRef.current === session) setError('实时识别启动失败，请使用拍照扫码或手动输入');
         });
       }
     } catch (e: any) {
       setError(e?.message || '无法访问摄像头，请使用拍照扫码或手动输入');
     }
-  }, []);
+  }, [confirmLiveDetection, stop]);
 
   /**
    * 拍照扫码（文档 9.1 同款方案）：调起系统相机拍摄条码照片，
@@ -236,7 +335,7 @@ export function useBarcodeScanner(onDetected: (text: string) => void) {
     return stop;
   }, [stop]);
 
-  return { videoRef, start, stop, active, liveSupported, error, capturePhotoScan };
+  return { videoRef, start, stop, active, liveSupported, error, torchSupported, torchOn, toggleTorch, capturePhotoScan };
 }
 
 export default useBarcodeScanner;

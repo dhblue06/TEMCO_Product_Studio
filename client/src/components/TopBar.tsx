@@ -20,13 +20,14 @@ interface TopBarProps {
   onProductImagesClick?: () => void;
   onMobileCaptureClick?: () => void;
   onMobileCaptureReviewClick?: () => void;
+  onAi3DClick?: () => void;
   onInventoryClick?: () => void;
   onStockReportClick?: () => void;
   stockReportCount?: number;
   scanResultCount?: number;
 }
 
-const TopBar: React.FC<TopBarProps> = ({ onSyncClick, onSettingsClick, onDriveScanClick, onCopyGenerationClick, onImageProcessClick, onAiImageClick, onExportClick, onImageWorkshopClick, onScanFolderClick, onOrganizeImagesClick, onBatchRenameClick, onAddProductClick, onWebsiteImportClick, onProductListCheckClick, onCajaCheckClick, onCategoriesClick, onProductImagesClick, onMobileCaptureClick, onMobileCaptureReviewClick, onInventoryClick, onStockReportClick, stockReportCount = 0, scanResultCount }) => {
+const TopBar: React.FC<TopBarProps> = ({ onSyncClick, onSettingsClick, onDriveScanClick, onCopyGenerationClick, onImageProcessClick, onAiImageClick, onExportClick, onImageWorkshopClick, onScanFolderClick, onOrganizeImagesClick, onBatchRenameClick, onAddProductClick, onWebsiteImportClick, onProductListCheckClick, onCajaCheckClick, onCategoriesClick, onProductImagesClick, onMobileCaptureClick, onMobileCaptureReviewClick, onAi3DClick, onInventoryClick, onStockReportClick, stockReportCount = 0, scanResultCount }) => {
   const [showMore, setShowMore] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
 
@@ -42,29 +43,33 @@ const TopBar: React.FC<TopBarProps> = ({ onSyncClick, onSettingsClick, onDriveSc
   const moreBtn = (label: string, onClick?: () => void, icon?: React.ReactNode) => (
     <button
       key={label}
-      className="btn"
+      className="topbar-menu-item"
       onClick={() => { setShowMore(false); onClick?.(); }}
-      style={{ justifyContent: 'flex-start', width: '100%', padding: '8px 12px', fontSize: 12.5 }}
+      type="button"
     >
-      {icon}
-      {label}
+      <span className="topbar-menu-icon" aria-hidden="true">{icon || '·'}</span>
+      <span>{label}</span>
     </button>
   );
 
   return (
-    <div className="topbar">
-      <div className="topbar-title">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <header className="topbar">
+      <div className="topbar-brand">
+        <span className="topbar-brand-mark" aria-hidden="true">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <rect x="3" y="3" width="7" height="7" />
           <rect x="14" y="3" width="7" height="7" />
           <rect x="14" y="14" width="7" height="7" />
           <rect x="3" y="14" width="7" height="7" />
         </svg>
-        TEMCO Product Studio
+        </span>
+        <span className="topbar-brand-copy">
+          <strong>TEMCO Product Studio</strong>
+          <small>商品与库存工作台</small>
+        </span>
       </div>
       <div className="topbar-actions">
-        {/* 高频操作组 */}
-        <div className="topbar-group">
+        <div className="topbar-group topbar-primary-actions">
           <button className="btn btn-cta" onClick={onAddProductClick}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="12" y1="5" x2="12" y2="19" />
@@ -78,92 +83,47 @@ const TopBar: React.FC<TopBarProps> = ({ onSyncClick, onSettingsClick, onDriveSc
             </svg>
             同步 Sheet
           </button>
-          <button className="btn" onClick={onWebsiteImportClick}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-            </svg>
-            导入网站商品
-          </button>
-          <button className="btn" onClick={onProductListCheckClick}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2" />
-            </svg>
-            导入产品清单
-          </button>
-          <button className="btn" onClick={onCajaCheckClick} style={{ color: 'var(--accent)', fontWeight: 600 }}>
-            📥 CAJA 新品检查
-          </button>
-          <button className="btn" onClick={onCopyGenerationClick}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-              <line x1="16" y1="13" x2="8" y2="13" />
-              <line x1="16" y1="17" x2="8" y2="17" />
-              <polyline points="10 9 9 9 8 9" />
-            </svg>
-            批量文案
-          </button>
-          <button className="btn" onClick={onImageWorkshopClick}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-              <circle cx="12" cy="13" r="4" />
-            </svg>
-            图片工坊
-          </button>
+          <button className="btn topbar-caja-action" onClick={onCajaCheckClick}>📥 CAJA 新品</button>
         </div>
 
         <div className="topbar-divider" />
 
-        {/* 移动端 / 管理组 */}
-        <div className="topbar-group">
-          <button className="btn" onClick={onMobileCaptureClick} style={{ color: 'var(--accent)', fontWeight: 600 }}>
+        <nav className="topbar-group topbar-workspace-actions" aria-label="仓库工作区">
+          <button className="btn" onClick={onMobileCaptureClick}>
             📱 手机采集
           </button>
           <button className="btn" onClick={onMobileCaptureReviewClick}>
             🧾 采集审核
           </button>
-          <button className="btn" onClick={onInventoryClick} style={{ color: '#f59e0b', fontWeight: 600 }}>
+          <button className="btn" onClick={onInventoryClick}>
             📦 仓库盘点
           </button>
           <button
-            className="btn"
+            className={`btn ${stockReportCount > 0 ? 'topbar-alert-action' : ''}`}
             onClick={onStockReportClick}
-            style={{ color: stockReportCount > 0 ? '#dc2626' : 'var(--text-primary)', fontWeight: stockReportCount > 0 ? 700 : 500, position: 'relative' }}
             title="缺货上报管理"
           >
             📉 缺货
             {stockReportCount > 0 && (
-              <span style={{
-                position: 'absolute', top: -6, right: -8,
-                background: '#ef4444', color: '#fff',
-                borderRadius: 999, minWidth: 18, height: 18,
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 10.5, fontWeight: 700, padding: '0 5px',
-                boxShadow: '0 0 0 2px var(--bg-secondary)',
-              }}>
+              <span className="topbar-alert-count">
                 {stockReportCount > 99 ? '99+' : stockReportCount}
               </span>
             )}
           </button>
-          <button className="btn" onClick={onCategoriesClick}>
-            分类管理
+          <button className="btn" onClick={onAi3DClick} title="AI 3D Studio">
+            ✦ AI 3D Studio
           </button>
-          <button className="btn" onClick={onProductImagesClick}>
-            产品图片
-          </button>
-          <button className="btn" onClick={onSettingsClick}>
-            设置
-          </button>
-        </div>
+        </nav>
 
         <div className="topbar-divider" />
 
         {/* 更多工具：低频操作收纳为下拉 */}
-        <div ref={moreRef} style={{ position: 'relative' }}>
+        <div ref={moreRef} className="topbar-more">
           <button
             className="btn"
             onClick={() => setShowMore(v => !v)}
-            style={{ background: showMore ? 'var(--bg-hover)' : undefined }}
+            aria-expanded={showMore}
+            aria-haspopup="menu"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="5" r="1.6" />
@@ -173,17 +133,15 @@ const TopBar: React.FC<TopBarProps> = ({ onSyncClick, onSettingsClick, onDriveSc
             更多工具
           </button>
           {showMore && (
-            <div style={{
-              position: 'absolute', right: 0, top: 'calc(100% + 6px)',
-              background: 'var(--bg-secondary)',
-              border: '1px solid var(--border-color)',
-              borderRadius: 10,
-              boxShadow: 'var(--shadow-lg)',
-              padding: 6,
-              minWidth: 190,
-              display: 'flex', flexDirection: 'column', gap: 2,
-              zIndex: 1000,
-            }}>
+            <div className="topbar-menu" role="menu">
+              <div className="topbar-menu-label">导入与内容</div>
+              {moreBtn('导入网站商品', onWebsiteImportClick, '↥')}
+              {moreBtn('导入产品清单', onProductListCheckClick, '▤')}
+              {moreBtn('批量文案', onCopyGenerationClick, '文')}
+              {moreBtn('图片工坊', onImageWorkshopClick, '图')}
+              <div className="topbar-menu-label">管理与工具</div>
+              {moreBtn('分类管理', onCategoriesClick, '类')}
+              {moreBtn('产品图片', onProductImagesClick, '像')}
               {moreBtn('素材匹配', onDriveScanClick)}
               {moreBtn('图片处理', onImageProcessClick)}
               {moreBtn('批量图片', onAiImageClick)}
@@ -191,11 +149,12 @@ const TopBar: React.FC<TopBarProps> = ({ onSyncClick, onSettingsClick, onDriveSc
               {moreBtn(`扫描文件夹${scanResultCount ? ` (${scanResultCount})` : ''}`, onScanFolderClick)}
               {moreBtn('整理图片', onOrganizeImagesClick)}
               {moreBtn('批量改名', onBatchRenameClick)}
+              {moreBtn('系统设置', onSettingsClick, '⚙')}
             </div>
           )}
         </div>
       </div>
-    </div>
+    </header>
   );
 };
 

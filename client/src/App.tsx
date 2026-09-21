@@ -20,6 +20,7 @@ import ProductImagesPage from './pages/ProductImagesPage';
 import MobileCaptureAccessModal from './components/mobileCapture/MobileCaptureAccessModal';
 import MobileCaptureReviewPage from './pages/MobileCaptureReviewPage';
 import StockReportPage from './pages/StockReportPage';
+import NewProductModal from './components/NewProductModal';
 import { productsApi, stockReportApi } from './services/api';
 import { ProductListItem, Pagination } from './types';
 import { useToast } from './components/ui/ToastProvider';
@@ -51,7 +52,7 @@ function App() {
   const [showImageModal, setShowImageModal] = useState(false);
   const [showAiImageModal, setShowAiImageModal] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
-  const [showNewProductPrompt, setShowNewProductPrompt] = useState(false);
+  const [showNewProductModal, setShowNewProductModal] = useState(false);
   const [showWorkshopModal, setShowWorkshopModal] = useState(false);
   const [showWebsiteImportModal, setShowWebsiteImportModal] = useState(false);
   const [showProductListModal, setShowProductListModal] = useState(false);
@@ -343,26 +344,14 @@ function App() {
         onProductImagesClick={() => setShowProductImagesPage(true)}
         onMobileCaptureClick={() => setShowMobileCaptureModal(true)}
         onMobileCaptureReviewClick={openReview}
+        onAi3DClick={() => { window.location.href = '/ai-3d'; }}
         onInventoryClick={() => { window.location.href = '/inventory'; }}
         onStockReportClick={() => setShowStockReport(true)}
         stockReportCount={stockReportCount}
         onScanFolderClick={handleScanFolder}
         onOrganizeImagesClick={handleOrganizeImages}
         onBatchRenameClick={handleBatchRename}
-        onAddProductClick={async () => {
-          const ref = prompt('请输入新商品的 Reference:');
-          if (ref && ref.trim()) {
-            try {
-              const d = await fetch('/api/products', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ reference: ref.trim() }),
-              }).then(r => r.json());
-              if (d.success) { fetchProducts(); setRefreshDetail(n => n + 1); success(`✅ 商品 ${ref} 创建成功`); }
-              else { toastError('❌ ' + (d.error || '创建失败')); }
-            } catch (e: any) { toastError('❌ ' + e.message); }
-          }
-        }}
+        onAddProductClick={() => setShowNewProductModal(true)}
         scanResultCount={scanMatchedRefs?.length}
       />
       <div className="main-area">
@@ -378,26 +367,27 @@ function App() {
         />
         <div className="content-area">
           <div className="table-header">
-            <input
-              className="search-input"
-              type="text"
-              placeholder="搜索 reference / SKU / 名称 / 分类 / 型号..."
-              value={searchInput}
-              onChange={(e) => handleSearchChange(e.target.value)}
-            />
-            <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}
-              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 4, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
+            <div className="search-shell">
+              <span aria-hidden="true">⌕</span>
+              <input
+                className="search-input"
+                type="search"
+                aria-label="搜索商品"
+                placeholder="搜索 Reference、SKU、名称或型号"
+                value={searchInput}
+                onChange={(e) => handleSearchChange(e.target.value)}
+              />
+            </div>
+            <select className="filter-control" aria-label="按分类筛选" value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setPage(1); }}>
               <option value="">全部分类</option>
               {categories.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
-            <select value={brandFilter} onChange={e => setBrandFilter(e.target.value)}
-              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 4, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
+            <select className="filter-control" aria-label="按品牌筛选" value={brandFilter} onChange={e => { setBrandFilter(e.target.value); setPage(1); }}>
               <option value="">全部品牌</option>
               <option value="TEMCO">TEMCO</option>
               <option value="HOPECOM">HOPECOM</option>
             </select>
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 4, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
+            <select className="filter-control" aria-label="按状态筛选" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }}>
               <option value="">全部状态</option>
               <option value="待处理">待处理</option>
               <option value="已匹配图片">已匹配图片</option>
@@ -407,18 +397,16 @@ function App() {
               <option value="已上传图片">已上传图片</option>
               <option value="已下架">已下架</option>
             </select>
-            <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
-              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 4, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }} />
-            <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-              {pagination.total} 个商品
+            <input className="filter-control" aria-label="按更新日期筛选" type="date" value={dateFilter} onChange={e => { setDateFilter(e.target.value); setPage(1); }} />
+            <span className="result-count">
+              <strong>{pagination.total}</strong> 个商品
             </span>
             {hasActiveFilters && (
-              <button className="btn btn-sm" onClick={clearAllFilters} title="清除搜索和所有筛选条件"
-                style={{ fontSize: 11, borderColor: 'var(--accent)', color: 'var(--accent)' }}>
+              <button className="btn btn-sm btn-filter-clear" onClick={clearAllFilters} title="清除搜索和所有筛选条件">
                 ✕ 清除筛选
               </button>
             )}
-            <button className="btn btn-sm" style={{ fontSize: 11 }}
+            <button className="btn btn-sm toolbar-secondary-action"
               onClick={async () => {
                 const ok = await confirm('同步所有已上传 PrestaShop 商品的价格？', { title: '同步价格', danger: false });
                 if (!ok) return;
@@ -586,6 +574,19 @@ function App() {
             setShowSheetModal(false);
             fetchProducts();
             setRefreshDetail(n => n + 1);
+          }}
+        />
+      )}
+
+      {showNewProductModal && (
+        <NewProductModal
+          onClose={() => setShowNewProductModal(false)}
+          onCreated={(reference) => {
+            setShowNewProductModal(false);
+            setSelectedRef(reference);
+            void fetchProducts();
+            setRefreshDetail(n => n + 1);
+            success(`✅ 商品 ${reference} 创建成功`);
           }}
         />
       )}

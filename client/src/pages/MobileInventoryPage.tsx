@@ -188,21 +188,22 @@ export function MobileInventoryPage() {
   const backTarget: Step | null = step === 'count' ? 'brand' : step === 'brand' ? 'product' : step === 'product' ? 'start' : step === 'summary' ? 'brand' : null;
 
   return (
-    <div style={{ maxWidth: 480, margin: '0 auto', padding: '12px 14px 20px', minHeight: '100vh', background: 'var(--bg-primary)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, position: 'sticky', top: 0, background: 'var(--bg-primary)', padding: '6px 0', zIndex: 10 }}>
+    <main className="mobile-shell mobile-safe-top">
+      <div className="mobile-utility-bar">
         <button
           type="button"
+          className="mobile-home-button"
           onClick={() => { window.location.href = '/mobile'; }}
-          style={{ border: '1px solid var(--border-color)', background: 'var(--bg-hover)', borderRadius: 8, padding: '4px 10px', fontSize: 12, cursor: 'pointer', color: 'var(--text-secondary)', flexShrink: 0 }}
           title="返回入口 / Volver al menú"
         >
           🏠 {t('hub.backHome')}
         </button>
         {backTarget && (
-          <button type="button" onClick={() => setStep(backTarget)} style={{ border: 'none', background: 'var(--bg-hover)', borderRadius: 8, width: 32, height: 32, fontSize: 18, cursor: 'pointer', color: 'var(--text-secondary)' }}>←</button>
+          <button type="button" className="mobile-back-button" aria-label="返回上一步" onClick={() => setStep(backTarget)}>←</button>
         )}
-        <div style={{ fontWeight: 700, fontSize: 16, flex: 1 }}>{t('inv.title')}</div><LangSwitch />
+        <div className="mobile-toolbar-title">{t('inv.title')}</div><LangSwitch />
       </div>
+      <div className="mobile-page-content mobile-stack">
       {!auth.token ? (
         <SessionStart
           loading={loading}
@@ -216,7 +217,7 @@ export function MobileInventoryPage() {
       ) : (
         <>
           {step === 'start' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="mobile-stack">
               <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                 {t('inv.hint')}
               </div>
@@ -235,19 +236,19 @@ export function MobileInventoryPage() {
               <div style={{ borderTop: '1px dashed var(--border-color)', margin: '4px 0' }} />
               <div style={{ fontSize: 14, fontWeight: 700 }}>{t('inv.new')}</div>
               <input value={newSessionName} onChange={e => setNewSessionName(e.target.value)} placeholder={t('inv.newPh')}
-                style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: 14, background: 'var(--bg-secondary)', color: 'var(--text-primary)' }} />
+                className="mobile-field" />
               <button type="button" className="btn btn-primary mobile-btn" onClick={createSession} disabled={loading}>{t('inv.start')}</button>
             </div>
           )}
 
           {step === 'product' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div className="mobile-stack">
               <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('inv.batch')} {invSession?.session_code}：{t('inv.pickProduct')}</div>
               <div style={{ display: 'flex', gap: 6 }}>
                 <input value={searchQ} onChange={e => setSearchQ(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && searchProduct()}
                   placeholder={t('inv.searchPh')}
-                  style={{ flex: 1, padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: 15, background: 'var(--bg-secondary)', color: 'var(--text-primary)' }} />
+                  className="mobile-field" style={{ flex: 1 }} />
                 <button type="button" className="btn btn-primary mobile-btn" onClick={searchProduct} disabled={loading}>{loading ? '...' : t('common.search')}</button>
               </div>
               {searchResult?.match && (
@@ -305,7 +306,8 @@ export function MobileInventoryPage() {
           {step === 'summary' && product && <SummaryView product={product} onDone={doneSession} onBack={() => setStep('brand')} />}
         </>
       )}
-    </div>
+      </div>
+    </main>
   );
 }
 

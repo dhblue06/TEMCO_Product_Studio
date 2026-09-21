@@ -1,6 +1,6 @@
 // CAJA 新品检查（v1.6）：上传 Products.xlsx → 与 PrestaShop 网站比对 → 默认只显示网站没有的新品
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { cajaCheckApi } from '../services/api';
+import { cajaCheckApi, prestashopApi } from '../services/api';
 import { useToast } from './ui/ToastProvider';
 import { useConfirm } from './ui/ConfirmProvider';
 import './Modal.css';
@@ -57,6 +57,16 @@ interface ItemRow {
   upload_status: string | null;
 }
 
+interface WebsiteOption { id: string | number; name: any; active?: string | number }
+interface UploadEdit { categoryId: string; manufacturerId: string }
+
+function websiteOptionName(value: any): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value !== 'object') return String(value).trim();
+  if (Array.isArray(value)) return websiteOptionName(value[0]);
+  return websiteOptionName(value['#text'] ?? value.language ?? value.name ?? '');
+}
+
 const STATUS_LABEL: Record<string, string> = {
   existing: '网站已存在',
   new: '🆕 网站没有',
@@ -97,6 +107,12 @@ export function CajaNewProductCheckModal({ onClose }: { onClose: () => void }) {
   const [uploadMsg, setUploadMsg] = useState('');
   const [syncingPrices, setSyncingPrices] = useState(false);
   const [priceMsg, setPriceMsg] = useState('');
+  const [categories, setCategories] = useState<WebsiteOption[]>([]);
+  const [manufacturers, setManufacturers] = useState<WebsiteOption[]>([]);
+  const [uploadOptionsError, setUploadOptionsError] = useState('');
+  const [uploadEdits, setUploadEdits] = useState<Record<number, UploadEdit>>({});
+  const [bulkCategoryId, setBulkCategoryId] = useState('');
+  const [bulkManufacturerId, setBulkManufacturerId] = useState('');
 
   const [history, setHistory] = useState<BatchRow[]>([]);
 
@@ -108,7 +124,15 @@ export function CajaNewProductCheckModal({ onClose }: { onClose: () => void }) {
       pageSize: 50,
     });
     if (res.success) {
-      setItems(res.data.items || []);
+      const loadedItems: ItemRow[] = res.data.items || [];
+      setItems(loadedItems);
+      setUploadEdits(prev => {
+        const next = { ...prev };
+        loadedItems.forEach(item => {
+          if (!next[item.id]) next[item.id] = { categoryId: '', manufacturerId: '' };
+        });
+        return next;
+      });
       setPagination(res.data.pagination || null);
     }
   }, [statusFilter, search, page]);
@@ -140,6 +164,39 @@ export function CajaNewProductCheckModal({ onClose }: { onClose: () => void }) {
   }, [loadItems]);
 
   useEffect(() => { loadHistory(); }, [loadHistory]);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([prestashopApi.getCategories(), prestashopApi.getManufacturers()])
+      .then(([categoryRes, manufacturerRes]) => {
+        if (cancelled) return;
+        if (!categoryRes.success || !manufacturerRes.success) throw new Error(categoryRes.error || manufacturerRes.error || '无法读取网站分类或品牌');
+        setCategories((categoryRes.data || []).filter((item: WebsiteOption) => String(item.active ?? '1') !== '0'));
+        setManufacturers((manufacturerRes.data || []).filter((item: WebsiteOption) => String(item.active ?? '1') !== '0'));
+      })
+      .catch(e => { if (!cancelled) setUploadOptionsError(e.message); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const updateUploadEdit = (itemId: number, patch: Partial<UploadEdit>) => {
+    setUploadEdits(prev => ({ ...prev, [itemId]: { ...(prev[itemId] || { categoryId: '', manufacturerId: '' }), ...patch } }));
+  };
+
+  const applyBulkUploadOptions = () => {
+    if (selectedIds.size === 0) return;
+    setUploadEdits(prev => {
+      const next = { ...prev };
+      selectedIds.forEach(itemId => {
+        const current = next[itemId] || { categoryId: '', manufacturerId: '' };
+        next[itemId] = {
+          ...current,
+          categoryId: bulkCategoryId || current.categoryId,
+          manufacturerId: bulkManufacturerId || current.manufacturerId,
+        };
+      });
+      return next;
+    });
+  };
 
   const onFileChange = async (f: File | null) => {
     setFile(f);
@@ -238,12 +295,16 @@ export function CajaNewProductCheckModal({ onClose }: { onClose: () => void }) {
 
   const uploadSelected = async () => {
     if (!batchId || selectedIds.size === 0) return;
-    const ok = await confirm(`将 ${selectedIds.size} 个商品直接创建到 PrestaShop 网站（基础信息：编号/名称/售价/EAN，库存为 0，不含图片/分类/文案）。继续？`, { title: '上传到网站' });
+    const requestedItems = Array.from(selectedIds).map(itemId => {
+      const edit = uploadEdits[itemId];
+      return { itemId, categoryId: Number(edit?.categoryId || 0), manufacturerId: Number(edit?.manufacturerId || 0) };
+    });
+    const ok = await confirm(`将 ${selectedIds.size} 个商品按 Excel 表中的售价创建到 PrestaShop，分类和品牌可留空，初始库存为 0。继续？`, { title: '上传到网站' });
     if (!ok) return;
     setUploading(true);
     setUploadMsg('');
     try {
-      const res = await cajaCheckApi.uploadToWebsite(batchId, Array.from(selectedIds));
+      const res = await cajaCheckApi.uploadToWebsite(batchId, requestedItems);
       if (res.success) {
         const d = res.data;
         setUploadMsg(`✅ 上传完成：新建 ${d.created} · 网站已有 ${d.exists} · 已上传跳过 ${d.skipped} · 失败 ${d.failed}`);
@@ -328,7 +389,7 @@ export function CajaNewProductCheckModal({ onClose }: { onClose: () => void }) {
           <h3>📥 CAJA 新品检查</h3>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
-        <div className="modal-body" style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="modal-body" style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0 }}>
 
           {/* 上传区 */}
           <div style={{ border: '1px dashed var(--border-color)', borderRadius: 10, padding: 14, background: 'var(--bg-secondary)' }}>
@@ -406,6 +467,19 @@ export function CajaNewProductCheckModal({ onClose }: { onClose: () => void }) {
                 </a>
                 {statusFilter !== 'price_changed' && (
                   <>
+                    <select value={bulkCategoryId} onChange={e => setBulkCategoryId(e.target.value)} disabled={uploading || categories.length === 0}
+                      title="批量设置所选商品的网站分类" style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border-color)', maxWidth: 190 }}>
+                      <option value="">批量选择分类</option>
+                      {categories.map(option => <option key={option.id} value={option.id}>{websiteOptionName(option.name) || `分类 #${option.id}`}</option>)}
+                    </select>
+                    <select value={bulkManufacturerId} onChange={e => setBulkManufacturerId(e.target.value)} disabled={uploading || manufacturers.length === 0}
+                      title="批量设置所选商品的网站品牌" style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border-color)', maxWidth: 170 }}>
+                      <option value="">批量选择品牌</option>
+                      {manufacturers.map(option => <option key={option.id} value={option.id}>{websiteOptionName(option.name) || `品牌 #${option.id}`}</option>)}
+                    </select>
+                    <button type="button" className="btn btn-sm" disabled={selectedIds.size === 0 || (!bulkCategoryId && !bulkManufacturerId)} onClick={applyBulkUploadOptions}>
+                      应用到已选
+                    </button>
                     <button
                       type="button"
                       className="btn btn-primary"
@@ -420,6 +494,7 @@ export function CajaNewProductCheckModal({ onClose }: { onClose: () => void }) {
                         {uploadMsg}
                       </span>
                     )}
+                    {uploadOptionsError && <span style={{ fontSize: 12, color: '#cf1322' }}>❌ {uploadOptionsError}</span>}
                   </>
                 )}
                 {statusFilter === 'price_changed' && (
@@ -490,24 +565,26 @@ export function CajaNewProductCheckModal({ onClose }: { onClose: () => void }) {
               </div>
 
               {/* 表格 */}
-              <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden', background: 'var(--bg-secondary)' }}>
+              <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, background: 'var(--bg-secondary)', maxHeight: '45vh', overflow: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
-                    <tr style={{ background: 'var(--bg-hover)', textAlign: 'left' }}>
+                    <tr style={{ background: 'var(--bg-hover)', textAlign: 'left', position: 'sticky', top: 0, zIndex: 2 }}>
                       <th style={{ padding: '8px 10px', width: 30 }}>
                         <input type="checkbox" checked={items.length > 0 && items.filter(i => isSelectable(i)).every(i => selectedIds.has(i.id))} onChange={toggleSelectAll} style={{ accentColor: 'var(--accent)' }} />
                       </th>
                       <th style={{ padding: '8px 10px', fontWeight: 600 }}>CAJA 编号</th>
                       <th style={{ padding: '8px 10px', fontWeight: 600 }}>条码</th>
                       <th style={{ padding: '8px 10px', fontWeight: 600 }}>商品名称</th>
-                      <th style={{ padding: '8px 10px', fontWeight: 600, textAlign: 'right' }}>文件售价</th>
+                      <th style={{ padding: '8px 10px', fontWeight: 600, textAlign: 'right' }}>Excel 售价</th>
+                      <th style={{ padding: '8px 10px', fontWeight: 600 }}>上传分类</th>
+                      <th style={{ padding: '8px 10px', fontWeight: 600 }}>上传品牌</th>
                       <th style={{ padding: '8px 10px', fontWeight: 600, textAlign: 'right' }}>网站价格</th>
                       <th style={{ padding: '8px 10px', fontWeight: 600 }}>检查结果</th>
                     </tr>
                   </thead>
                   <tbody>
                     {items.length === 0 && (
-                      <tr><td colSpan={7} style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)' }}>暂无数据</td></tr>
+                      <tr><td colSpan={9} style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)' }}>暂无数据</td></tr>
                     )}
                     {items.map(it => (
                       <React.Fragment key={it.id}>
@@ -528,8 +605,22 @@ export function CajaNewProductCheckModal({ onClose }: { onClose: () => void }) {
                           <td style={{ padding: '8px 10px', fontFamily: 'monospace' }}>{it.caja_reference}</td>
                           <td style={{ padding: '8px 10px', fontFamily: 'monospace', color: 'var(--text-secondary)' }}>{it.barcode}</td>
                           <td style={{ padding: '8px 10px', maxWidth: 320 }}>{it.name}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: hasPriceChanged(it) ? 700 : 400, color: hasPriceChanged(it) ? '#ef4444' : 'var(--text-primary)' }}>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: hasPriceChanged(it) ? 700 : 400, color: hasPriceChanged(it) ? '#ef4444' : 'var(--text-primary)' }} onClick={e => e.stopPropagation()}>
                             {it.sale_price != null ? `€${it.sale_price}` : '—'}
+                          </td>
+                          <td style={{ padding: '8px 10px' }} onClick={e => e.stopPropagation()}>
+                            {!it.prestashop_product_id ? <select value={uploadEdits[it.id]?.categoryId ?? ''} onChange={e => updateUploadEdit(it.id, { categoryId: e.target.value })}
+                              aria-label={`${it.caja_reference} 上传分类`} style={{ width: 165, padding: '5px 7px', borderRadius: 6, border: '1px solid var(--border-color)' }}>
+                              <option value="">留空（可选）</option>
+                              {categories.map(option => <option key={option.id} value={option.id}>{websiteOptionName(option.name) || `分类 #${option.id}`}</option>)}
+                            </select> : '—'}
+                          </td>
+                          <td style={{ padding: '8px 10px' }} onClick={e => e.stopPropagation()}>
+                            {!it.prestashop_product_id ? <select value={uploadEdits[it.id]?.manufacturerId ?? ''} onChange={e => updateUploadEdit(it.id, { manufacturerId: e.target.value })}
+                              aria-label={`${it.caja_reference} 上传品牌`} style={{ width: 145, padding: '5px 7px', borderRadius: 6, border: '1px solid var(--border-color)' }}>
+                              <option value="">留空（可选）</option>
+                              {manufacturers.map(option => <option key={option.id} value={option.id}>{websiteOptionName(option.name) || `品牌 #${option.id}`}</option>)}
+                            </select> : '—'}
                           </td>
                           <td style={{ padding: '8px 10px', textAlign: 'right' }}>
                             {it.prestashop_price != null ? (
@@ -570,7 +661,7 @@ export function CajaNewProductCheckModal({ onClose }: { onClose: () => void }) {
                         </tr>
                         {expanded.has(it.id) && (
                           <tr style={{ borderTop: '1px solid var(--border-color)', background: 'var(--bg-hover)' }}>
-                            <td colSpan={7} style={{ padding: '8px 12px', fontSize: 12, color: 'var(--text-secondary)' }}>
+                            <td colSpan={9} style={{ padding: '8px 12px', fontSize: 12, color: 'var(--text-secondary)' }}>
                               <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                                 {it.name2 && <span>名称2：{it.name2}</span>}
                                 {it.purchase_price != null && <span>进价：€{it.purchase_price}</span>}

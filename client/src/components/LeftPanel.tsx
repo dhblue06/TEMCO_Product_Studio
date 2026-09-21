@@ -52,22 +52,29 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
   statusStats.forEach((s: any) => { statusMap[s.status] = s.count; });
 
   return (
-    <div className="left-panel">
+    <aside className="left-panel" aria-label="商品筛选">
+      <div className="filter-summary">
+        <span>商品总览</span>
+        <strong>{statistics?.total || 0}</strong>
+        <small>件商品</small>
+      </div>
       <div className="filter-group">
         <h3>商品状态</h3>
-        <div
+        <button
+          type="button"
           className={`filter-item ${!statusFilter ? 'active' : ''}`}
           onClick={() => onStatusFilter('')}
         >
           <span>全部</span>
           <span className="filter-count">{statistics?.total || 0}</span>
-        </div>
+        </button>
         {statusOrder.map((status) => {
           const count = statusMap[status] || 0;
           if (count === 0) return null;
           const style = statusStyles[status];
           return (
-            <div
+            <button
+              type="button"
               key={status}
               className={`filter-item ${statusFilter === status ? 'active' : ''}`}
               onClick={() => onStatusFilter(status)}
@@ -78,27 +85,29 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
                 </span>
               </span>
               <span className="filter-count">{count}</span>
-            </div>
+            </button>
           );
         })}
       </div>
 
       <div className="filter-group">
         <h3>分类</h3>
-        <div
+        <button
+          type="button"
           className={`filter-item ${!categoryFilter ? 'active' : ''}`}
           onClick={() => onCategoryFilter('')}
         >
           <span>全部分类</span>
-        </div>
+        </button>
         {categories.map((cat) => (
-          <div
+          <button
+            type="button"
             key={cat}
             className={`filter-item ${categoryFilter === cat ? 'active' : ''}`}
             onClick={() => onCategoryFilter(cat)}
           >
             <span>{cat}</span>
-          </div>
+          </button>
         ))}
       </div>
 
@@ -107,17 +116,18 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
         {['','on','off','conflict'].map((ws) => {
           const label = ws === '' ? '全部' : ws === 'on' ? '✓ 已在网站' : ws === 'off' ? '未在网站' : '⚠ 冲突';
           return (
-            <div
+            <button
+              type="button"
               key={ws}
               className={`filter-item ${websiteFilter === ws ? 'active' : ''}`}
               onClick={() => onWebsiteFilter(ws)}
             >
               <span>{label}</span>
-            </div>
+            </button>
           );
         })}
       </div>
-    </div>
+    </aside>
   );
 };
 

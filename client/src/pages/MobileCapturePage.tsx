@@ -21,6 +21,7 @@ import { IMAGE_ROLES, roleLabel } from '../services/mobileColors';
 import { prestashopApi } from '../services/api';
 import { useToast } from '../components/ui/ToastProvider';
 import { useConfirm } from '../components/ui/ConfirmProvider';
+import { mobileOfflineStore, OfflineUploadRecord } from '../services/mobileOfflineStore';
 
 type Tab = 'scan' | 'search';
 
@@ -70,6 +71,7 @@ export default function MobileCapturePage() {
   const [uploadTarget, setUploadTarget] = useState<{ fileId: string; role: string; colors: string[] } | null>(null);
   const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
   const [networkOk, setNetworkOk] = useState(true);
+  const [localDraftPending, setLocalDraftPending] = useState(false);
   // 网站现有变体颜色（与审核端同步的变体一致）
   const [websiteColors, setWebsiteColors] = useState<string[]>([]);
   // 网站颜色名 → hex 色值（点货色块显示用）
@@ -86,6 +88,9 @@ export default function MobileCapturePage() {
   const [showSearchResult, setShowSearchResult] = useState(false);
 
   const objectUrlsRef = useRef<string[]>([]);
+  const syncingUploadIds = useRef<Set<string>>(new Set());
+  const hydratedDraftCaptureId = useRef<number | null>(null);
+  const draftSaveTimer = useRef<number | null>(null);
 
   // 加载网站颜色属性值（失败则回退默认常用色）
   useEffect(() => {
@@ -122,7 +127,13 @@ export default function MobileCapturePage() {
     };
     check();
     const t = window.setInterval(check, 15000);
-    return () => window.clearInterval(t);
+    window.addEventListener('online', check);
+    window.addEventListener('offline', check);
+    return () => {
+      window.clearInterval(t);
+      window.removeEventListener('online', check);
+      window.removeEventListener('offline', check);
+    };
   }, []);
 
   // 加载会话列表
@@ -407,6 +418,81 @@ export default function MobileCapturePage() {
     setPendingFiles(prev => [...prev, ...items]);
   }, []);
 
+  // 页面刷新或被手机系统回收后，从 IndexedDB 恢复尚未完成的照片上传。
+  useEffect(() => {
+    if (!capture) return;
+    let active = true;
+    mobileOfflineStore.listUploads(capture.id).then(records => {
+      if (!active) return;
+      const restored = records.map(record => {
+        const previewUrl = URL.createObjectURL(record.file);
+        objectUrlsRef.current.push(previewUrl);
+        return {
+          id: record.id,
+          captureId: record.captureId,
+          filename: record.filename,
+          role: record.role,
+          colors: record.colors,
+          sequence: record.sequence,
+          status: record.status === 'uploading' ? 'pending' : record.status,
+          error: record.error,
+          previewUrl,
+          file: record.file,
+        } as UploadQueueItem;
+      });
+      setUploadQueue(current => {
+        const existing = new Set(current.map(item => item.id));
+        return [...current, ...restored.filter(item => !existing.has(item.id))];
+      });
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [capture?.id]);
+
+  // 恢复本机草稿。只在进入某个采集任务时执行一次，避免覆盖用户刚输入的内容。
+  useEffect(() => {
+    if (!capture) {
+      hydratedDraftCaptureId.current = null;
+      setLocalDraftPending(false);
+      return;
+    }
+    let active = true;
+    hydratedDraftCaptureId.current = null;
+    mobileOfflineStore.getDraft(capture.id).then(draft => {
+      if (!active) return;
+      if (draft) {
+        setNotes(draft.notes);
+        setProductColors(draft.productColors);
+        setInventoryRows(draft.inventoryRows);
+        setSelectedModels(draft.selectedModels);
+        setLocalDraftPending(true);
+        toastInfo(t('draft.restored'));
+      }
+      hydratedDraftCaptureId.current = capture.id;
+    }).catch(() => {
+      hydratedDraftCaptureId.current = capture.id;
+    });
+    return () => { active = false; };
+  }, [capture?.id]);
+
+  // 输入后短暂防抖并保存到 IndexedDB；不依赖局域网是否在线。
+  useEffect(() => {
+    if (!capture || hydratedDraftCaptureId.current !== capture.id) return;
+    if (draftSaveTimer.current) window.clearTimeout(draftSaveTimer.current);
+    draftSaveTimer.current = window.setTimeout(() => {
+      mobileOfflineStore.putDraft({
+        captureId: capture.id,
+        notes,
+        productColors,
+        inventoryRows,
+        selectedModels,
+        updatedAt: Date.now(),
+      }).then(() => setLocalDraftPending(true)).catch(() => {});
+    }, 350);
+    return () => {
+      if (draftSaveTimer.current) window.clearTimeout(draftSaveTimer.current);
+    };
+  }, [capture?.id, notes, productColors, inventoryRows, selectedModels]);
+
   // 打开上传设置对话框
   const openUploadDialog = (fileId: string) => {
     setUploadTarget({ fileId, role: 'front', colors: [] });
@@ -418,32 +504,77 @@ export default function MobileCapturePage() {
     const pf = pendingFiles.find(p => p.id === uploadTarget.fileId);
     if (!pf) { setUploadTarget(null); return; }
     const queueId = pf.id;
-    // 保留 file 引用：失败后可自动/手动重试（成功或取消时释放）
-    setUploadQueue(prev => [...prev, { id: queueId, filename: pf.file.name, role: uploadTarget.role, status: 'uploading', previewUrl: pf.previewUrl, file: pf.file }]);
+    const queueItem: UploadQueueItem = {
+      id: queueId,
+      captureId: capture.id,
+      filename: pf.file.name,
+      role: uploadTarget.role,
+      colors: uploadTarget.colors,
+      sequence: images.length + 1,
+      status: 'pending',
+      previewUrl: pf.previewUrl,
+      file: pf.file,
+    };
+    const offlineRecord: OfflineUploadRecord = {
+      ...queueItem,
+      file: pf.file,
+      status: 'pending',
+      createdAt: Date.now(),
+      attempts: 0,
+    };
+    // 必须先安全落盘，再从待选照片中移除，避免弱网或页面关闭造成照片丢失。
+    try {
+      await mobileOfflineStore.putUpload(offlineRecord);
+    } catch (e: any) {
+      toastError(`照片无法保存到本机：${e.message}`);
+      return;
+    }
+    setUploadQueue(prev => [...prev, queueItem]);
     setPendingFiles(prev => prev.filter(p => p.id !== queueId));
     setUploadTarget(null);
+    await uploadQueueItem(queueItem);
+  };
+
+  const uploadQueueItem = async (item: UploadQueueItem) => {
+    if (!item.file || syncingUploadIds.current.has(item.id)) return;
+    syncingUploadIds.current.add(item.id);
+    setUploadQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'uploading', error: undefined } : q));
+    await mobileOfflineStore.putUpload({
+      id: item.id, captureId: item.captureId, filename: item.filename, file: item.file,
+      role: item.role, colors: item.colors, sequence: item.sequence, status: 'uploading',
+      createdAt: Date.now(), attempts: 1,
+    }).catch(() => {});
     try {
-      const res = await mobileCaptureApi.uploadImage(capture.id, pf.file, {
-        role: uploadTarget.role,
-        colors: uploadTarget.colors,
-        sequence: images.length + 1,
+      const res = await mobileCaptureApi.uploadImage(item.captureId, item.file, {
+        role: item.role,
+        colors: item.colors,
+        sequence: item.sequence,
       });
       if (res.success) {
-        setUploadQueue(prev => prev.map(q => q.id === queueId ? { ...q, status: 'done', file: undefined } : q));
+        await mobileOfflineStore.deleteUpload(item.id).catch(() => {});
+        setUploadQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'done', file: undefined } : q));
         if (res.duplicate) {
           toastWarning(t('alert.dupPhoto'));
         } else {
           setImages(prev => [...prev, res.data]);
           // 若图片带颜色，同步到产品颜色池
-          if (uploadTarget.colors.length > 0) {
-            setProductColors(prev => Array.from(new Set([...prev, ...uploadTarget.colors])));
+          if (item.colors.length > 0) {
+            setProductColors(prev => Array.from(new Set([...prev, ...item.colors])));
           }
         }
       } else {
-        setUploadQueue(prev => prev.map(q => q.id === queueId ? { ...q, status: 'failed', error: res.error || t('alert.uploadFail') } : q));
+        throw new Error(res.error || t('alert.uploadFail'));
       }
     } catch (e: any) {
-      setUploadQueue(prev => prev.map(q => q.id === queueId ? { ...q, status: 'failed', error: e.message } : q));
+      const failed = { ...item, status: 'failed' as const, error: e.message };
+      setUploadQueue(prev => prev.map(q => q.id === item.id ? failed : q));
+      await mobileOfflineStore.putUpload({
+        id: item.id, captureId: item.captureId, filename: item.filename, file: item.file,
+        role: item.role, colors: item.colors, sequence: item.sequence, status: 'failed',
+        error: e.message, createdAt: Date.now(), attempts: 1,
+      }).catch(() => {});
+    } finally {
+      syncingUploadIds.current.delete(item.id);
     }
   };
 
@@ -456,37 +587,56 @@ export default function MobileCapturePage() {
       setUploadQueue(prev => prev.filter(q => q.id !== id));
       return;
     }
-    setUploadQueue(prev => prev.map(q => q.id === id ? { ...q, status: 'uploading', error: undefined } : q));
-    try {
-      const res = await mobileCaptureApi.uploadImage(capture.id, item.file!, {
-        role: item.role,
-        colors: [],
-        sequence: images.length + 1,
-      });
-      if (res.success) {
-        setUploadQueue(prev => prev.map(q => q.id === id ? { ...q, status: 'done', file: undefined } : q));
-        if (res.duplicate) toastWarning(t('alert.dupPhoto'));
-        else setImages(prev => [...prev, res.data]);
-      } else {
-        setUploadQueue(prev => prev.map(q => q.id === id ? { ...q, status: 'failed', error: res.error || t('alert.uploadFail') } : q));
-        toastError(t('alert.uploadFail'), { vibrate: true });
-      }
-    } catch (e: any) {
-      setUploadQueue(prev => prev.map(q => q.id === id ? { ...q, status: 'failed', error: e.message } : q));
-      toastError(t('alert.uploadFail') + ': ' + e.message, { vibrate: true });
-    }
+    await uploadQueueItem(item);
   };
+
+  // 局域网恢复后自动补传。队列保存在 IndexedDB，刷新页面也仍可继续。
+  useEffect(() => {
+    if (!networkOk) return;
+    const waiting = uploadQueue.filter(item => item.status === 'pending' || item.status === 'failed');
+    waiting.forEach(item => { void uploadQueueItem(item); });
+  }, [networkOk, uploadQueue.length]);
+
+  // 本机草稿存在且服务器恢复后，自动把文字、库存和型号同步回原采集任务。
+  useEffect(() => {
+    if (!networkOk || !capture || !localDraftPending || hydratedDraftCaptureId.current !== capture.id) return;
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      try {
+        await mobileCaptureApi.updateCaptureDraft(capture.id, { notes, colors: productColors });
+        await mobileCaptureApi.saveInventory(capture.id, inventoryRows.map(r => ({
+          colorName: r.colorName,
+          quantity: r.countType === 'exact' || r.countType === 'estimated' ? r.quantity : null,
+          countType: r.countType,
+        })));
+        await mobileCaptureApi.savePhoneModels(capture.id, selectedModels.map(m => ({ brand: '', model: m.model, colors: m.colors })));
+        if (active) setLocalDraftPending(false);
+      } catch {
+        // 保留本机草稿，等待下一次健康检查或用户手动保存。
+      }
+    }, 800);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [networkOk, capture?.id, localDraftPending, notes, productColors, inventoryRows, selectedModels]);
 
   // === 保存 ===
   const saveDraft = async (): Promise<boolean> => {
     if (!capture) return false;
     setSaving(true);
     try {
+      await mobileOfflineStore.putDraft({
+        captureId: capture.id, notes, productColors, inventoryRows, selectedModels, updatedAt: Date.now(),
+      });
+      setLocalDraftPending(true);
+      if (!networkOk) {
+        toastInfo(t('draft.savedLocally'));
+        return true;
+      }
       await mobileCaptureApi.updateCaptureDraft(capture.id, { notes, colors: productColors });
       await mobileCaptureApi.saveInventory(capture.id, inventoryRows.map(r => ({
         colorName: r.colorName, quantity: r.countType === 'exact' || r.countType === 'estimated' ? r.quantity : null, countType: r.countType,
       })));
       await mobileCaptureApi.savePhoneModels(capture.id, selectedModels.map(m => ({ brand: '', model: m.model, colors: m.colors })));
+      setLocalDraftPending(false);
       return true;
     } catch (e: any) {
       toastError(t('alert.saveFail') + ': ' + e.message);
@@ -517,6 +667,10 @@ export default function MobileCapturePage() {
 
   const submit = async () => {
     if (!capture) return;
+    if (uploadQueue.some(item => item.status !== 'done')) {
+      toastWarning(t('queue.waitBeforeSubmit'), { vibrate: true });
+      return;
+    }
     if (!await ensureDraft()) return;
     if (!await saveDraft()) return;
     if (images.length === 0) {
@@ -526,6 +680,7 @@ export default function MobileCapturePage() {
     try {
       const res = await mobileCaptureApi.submitCapture(capture.id);
       if (res.success) {
+        await mobileOfflineStore.deleteDraft(capture.id).catch(() => {});
         success(t('alert.submitted'), { vibrate: true });
         resetCurrent();
       } else {
@@ -539,6 +694,10 @@ export default function MobileCapturePage() {
   // {t('capture.saveAndNext')}（文档 14）
   const saveAndNext = async () => {
     if (!capture) return;
+    if (uploadQueue.some(item => item.status !== 'done')) {
+      toastWarning(t('queue.waitBeforeSubmit'), { vibrate: true });
+      return;
+    }
     if (!await ensureDraft()) return;
     if (!await saveDraft()) return;
     if (images.length === 0) {
@@ -548,6 +707,7 @@ export default function MobileCapturePage() {
     try {
       const res = await mobileCaptureApi.submitCapture(capture.id);
       if (res.success) {
+        await mobileOfflineStore.deleteDraft(capture.id).catch(() => {});
         success(t('alert.submitted'), { vibrate: true });
         resetCurrent();
       } else {
@@ -571,6 +731,7 @@ export default function MobileCapturePage() {
     setCaptureStatus(null);
     setPendingFiles([]);
     setUploadQueue([]);
+    setLocalDraftPending(false);
   };
 
   // 清理 object URLs
@@ -601,7 +762,7 @@ export default function MobileCapturePage() {
   if (!session || showSessionPicker) {
     return (
       <MobileShell networkOk={networkOk}>
-        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 420, margin: '0 auto' }}>
+        <div className="mobile-page-content mobile-stack">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h2 style={{ margin: 0, fontSize: 18 }}>{t('session.title')}</h2>
             <button type="button" className="btn btn-sm" onClick={logout}>{t('session.logout')}</button>
@@ -717,29 +878,37 @@ export default function MobileCapturePage() {
   return (
     <MobileShell networkOk={networkOk}>
       {/* 顶部：操作员/会话（渐变蓝 + 安全区） */}
-      <div className="mobile-topbar mobile-safe-top" style={{ padding: '10px 16px', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <span style={{ fontWeight: 700, fontSize: 15 }}>📱 TEMCO Mobile Capture</span>
-          <span style={{ fontSize: 11, opacity: .92 }}>{session.session_code} · {auth.operatorName}</span>
+      <div className="mobile-work-header">
+        <div className="mobile-work-header-copy">
+          <span className="mobile-work-header-kicker">商品采集</span>
+          <strong>{session.session_code}</strong>
+          <small>{auth.operatorName}</small>
         </div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <span title={networkOk ? t('network.connected') : t('network.disconnected')} style={{ width: 10, height: 10, borderRadius: 10, background: networkOk ? '#4ade80' : '#f87171', boxShadow: networkOk ? '0 0 0 3px rgba(74,222,128,.25)' : '0 0 0 3px rgba(248,113,113,.25)' }} />
+        <div className="mobile-work-header-actions">
+          <span className={`mobile-network-pill ${networkOk ? 'is-online' : 'is-offline'}`} title={networkOk ? t('network.connected') : t('network.disconnected')}>
+            <i aria-hidden="true" />{networkOk ? t('network.onlineShort') : t('network.offlineShort')}
+          </span>
           {uploadQueue.some(q => q.status === 'pending' || q.status === 'failed') && (
             <span style={{ fontSize: 11, background: 'rgba(255,255,255,.22)', padding: '2px 8px', borderRadius: 10 }}>
               {t('queue.pendingCount')} {uploadQueue.filter(q => q.status !== 'done').length}
             </span>
           )}
-          <button type="button" onClick={() => { setShowSessionPicker(true); loadSessions(); loadDraftTasks(); }} style={{ background: 'rgba(255,255,255,.18)', color: '#fff', border: '1px solid rgba(255,255,255,.35)', borderRadius: 8, padding: '5px 12px', fontSize: 12, cursor: 'pointer' }}>{t('session.btn')}</button>
+          {localDraftPending && (
+            <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 10, background: 'rgba(245,158,11,.22)' }}>
+              {t('draft.localPending')}
+            </span>
+          )}
+          <button type="button" className="mobile-header-button" onClick={() => { setShowSessionPicker(true); loadSessions(); loadDraftTasks(); }}>{t('session.btn')}</button>
         </div>
       </div>
 
-      <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 12, paddingBottom: 90 }}>
+      <div className="mobile-page-content mobile-stack mobile-action-safe">
         {/* 扫描 / 搜索切换 */}
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button type="button" onClick={() => setTab('scan')} className={tab === 'scan' ? 'btn btn-primary btn-sm' : 'btn btn-sm'}>{t('tab.scan')}</button>
-          <button type="button" onClick={() => setTab('search')} className={tab === 'search' ? 'btn btn-primary btn-sm' : 'btn btn-sm'}>{t('tab.search')}</button>
+        <div className="mobile-segmented" role="tablist" aria-label="商品查找方式">
+          <button type="button" role="tab" aria-selected={tab === 'scan'} onClick={() => setTab('scan')} className={tab === 'scan' ? 'active' : ''}>{t('tab.scan')}</button>
+          <button type="button" role="tab" aria-selected={tab === 'search'} onClick={() => setTab('search')} className={tab === 'search' ? 'active' : ''}>{t('tab.search')}</button>
           {candidate && (
-            <button type="button" className="btn btn-sm" onClick={resetCurrent}>{t('tab.clear')}</button>
+            <button type="button" className="mobile-segment-clear" onClick={resetCurrent}>{t('tab.clear')}</button>
           )}
         </div>
 
@@ -1006,12 +1175,12 @@ export default function MobileCapturePage() {
 function MobileShell({ networkOk, children }: { networkOk: boolean; children: React.ReactNode }) {
   const { t } = useI18n();
   return (
-    <div className="mobile-safe-top" style={{ minHeight: '100vh', background: 'var(--bg-primary)', color: 'var(--text-primary)', maxWidth: 480, margin: '0 auto', position: 'relative', paddingBottom: 40 }}>
-      <div style={{ position: 'sticky', top: 0, zIndex: 50, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 12px 0', background: 'var(--bg-primary)' }}>
+    <main className="mobile-shell mobile-safe-top" data-network={networkOk ? 'online' : 'offline'}>
+      <div className="mobile-utility-bar">
         <button
           type="button"
+          className="mobile-home-button"
           onClick={() => { window.location.href = '/mobile'; }}
-          style={{ border: '1px solid var(--border-color)', background: 'var(--bg-hover)', borderRadius: 8, padding: '4px 10px', fontSize: 12, cursor: 'pointer', color: 'var(--text-secondary)' }}
           title="返回入口 / Volver al menú"
         >
           🏠 {t('hub.backHome')}
@@ -1019,7 +1188,7 @@ function MobileShell({ networkOk, children }: { networkOk: boolean; children: Re
         <LangSwitch />
       </div>
       {children}
-    </div>
+    </main>
   );
 }
 
